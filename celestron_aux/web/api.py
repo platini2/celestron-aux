@@ -13,7 +13,9 @@ from .. import __version__, catalog
 from ..app import ScannerApp
 from ..catalog import Addr
 from ..protocol import AuxPacket
-from .feed import TrafficFeed
+from ..transport.factory import LIVE_MODES
+from ..transport.tcp import DEFAULT_PORT
+from .session import AlreadyConnected, WebSession
 
 Json = Dict[str, Any]
 
@@ -26,43 +28,54 @@ class ApiError(Exception):
 
 
 class WebApi:
-    def __init__(self, app: ScannerApp, feed: TrafficFeed) -> None:
-        self.app = app
-        self.feed = feed
+    def __init__(self, session: WebSession) -> None:
+        self.session = session
+
+    def _app(self) -> ScannerApp:
+        app = self.session.app
+        if app is None:
+            raise ApiError(409, "Not connected. Connect to the mount first.")
+        return app
 
     # --- reads --------------------------------------------------------------
 
     def state(self) -> Json:
-        app = self.app
-        model = app.registry.mount_model
-        position = app.gps.position
+        session = self.session
+        app = session.app
+        model = app.registry.mount_model if app else None
+        position = session.gps_position
+        config = session.config
         return {
             "version": __version__,
-            "connection": app.transport.description,
-            "connected": app.bus.is_open,
-            "scanning": app.scanning,
+            "session": None if app is None else {
+                "connection": app.transport.description,
+                "mode": session.mode,
+                "open": app.bus.is_open,
+            },
+            "connected": app is not None and app.bus.is_open,
+            "scanning": app is not None and app.scanning,
             "mount": catalog.mount_name(model),
             "mount_model": None if model is None else f"0x{model:04x}",
-            "devices": [
+            "devices": [] if app is None else [
                 {"address": address, "name": catalog.device_name(address), "version": version}
                 for address, version in app.devices()
             ],
             "settings": {
-                "keepalive": app.keepalive.enabled,
-                "csv": app.csv_log.active,
-                "csv_path": str(app.config.csv_path),
-                "raw": app.raw_recorder.active,
-                "raw_path": str(app.config.raw_path),
-                "images": app.images.enabled,
-                "image_dir": str(app.config.image_dir),
+                "keepalive": session.keepalive_enabled(),
+                "csv": session.csv_log.active,
+                "csv_path": str(config.csv_path),
+                "raw": session.raw_recorder.active,
+                "raw_path": str(config.raw_path),
+                "images": config.save_starsense_images,
+                "image_dir": str(config.image_dir),
             },
             "gps": {
                 "enabled": position is not None,
                 "latitude": position[0] if position else None,
                 "longitude": position[1] if position else None,
             },
-            "out_of_frame_bytes": app.out_of_frame_bytes,
-            "stars": self.feed.latest_stars,
+            "out_of_frame_bytes": app.out_of_frame_bytes if app else 0,
+            "stars": session.feed.latest_stars,
         }
 
     def commands(self, device: int) -> Json:
@@ -71,75 +84,111 @@ class WebApi:
             "commands": [{"id": cid, "name": name} for cid, name in catalog.commands_for(device)],
         }
 
-    # --- actions ------------------------------------------------------------
+    def ports(self) -> Json:
+        try:
+            from ..transport.serial_port import list_serial_ports
+            ports = list_serial_ports()
+        except Exception as exc:  # pyserial missing or the OS refused to enumerate
+            raise ApiError(500, f"Could not list serial ports: {exc}") from exc
+        return {"ports": [{"device": device, "description": description} for device, description in ports]}
+
+    # --- connection ---------------------------------------------------------
+
+    def connect(self, body: Mapping[str, Any]) -> Json:
+        mode = body.get("mode")
+        if mode not in LIVE_MODES:
+            raise ApiError(400, "Choose Wi-Fi, AUX port or hand controller.")
+        target = str(body.get("target") or "").strip()
+        if not target:
+            raise ApiError(400, "Enter the mount's IP address." if mode == "wifi" else "Choose a serial port.")
+        tcp_port = _int(body, "tcp_port", 1, 65535, default=DEFAULT_PORT)
+        scan = _bool(body, "scan", default=True)
+        try:
+            description = self.session.connect(mode, target, tcp_port=tcp_port, scan=scan)
+        except AlreadyConnected as exc:
+            raise ApiError(409, str(exc)) from exc
+        except (OSError, ValueError) as exc:
+            raise ApiError(502, f"Could not connect to {target}: {exc}") from exc
+        return {"message": f"Connected: {description}." + (" Scanning the bus." if scan else "")}
+
+    def disconnect(self, body: Mapping[str, Any]) -> Json:
+        if not self.session.disconnect():
+            raise ApiError(409, "Not connected.")
+        return {"message": "Disconnected."}
+
+    # --- actions on the mount -----------------------------------------------
 
     def scan(self, body: Mapping[str, Any]) -> Json:
         full = _bool(body, "full", default=False)
-        if not self.app.start_scan(full):
+        if not self._app().start_scan(full):
             raise ApiError(409, "A scan is already running.")
         return {"message": "Scanning all addresses (about 40 seconds)." if full else "Scanning the bus."}
 
     def identify(self, body: Mapping[str, Any]) -> Json:
-        if not self.app.identify_mount():
+        if not self._app().identify_mount():
             raise ApiError(409, "No azimuth motor detected yet. Scan the bus first.")
         return {"message": "Asked the azimuth motor for the mount model."}
 
+    def send(self, body: Mapping[str, Any]) -> Json:
+        app = self._app()
+        device = _int(body, "device", 0, 0xFF)
+        command = _int(body, "command", 0, 0xFF)
+        payload_text = str(body.get("payload") or "").replace(" ", "")
+        try:
+            payload = bytes.fromhex(payload_text)
+        except ValueError as exc:
+            raise ApiError(400, "Payload must be hex, for example 03e800.") from exc
+        if not app.send(AuxPacket(Addr.SCANNER, device, command, payload)):
+            raise ApiError(503, "The connection to the mount is closed.")
+        name = catalog.command_name(device, command)
+        return {"message": f"Sent {name} (0x{command:02x}) to {catalog.device_name(device)}."}
+
+    def starsense_capture(self, body: Mapping[str, Any]) -> Json:
+        self._app().start_starsense_capture()
+        return {"message": "StarSense capture started. The star list arrives in about 8 seconds."}
+
+    def starsense_sample(self, body: Mapping[str, Any]) -> Json:
+        if not self._app().send_sample_star_list():
+            raise ApiError(503, "The connection to the mount is closed.")
+        return {"message": "Sent the sample star list."}
+
+    def reset_clock(self, body: Mapping[str, Any]) -> Json:
+        self._app().clock.reset()
+        return {"message": "Packet timer reset to zero."}
+
+    # --- settings (allowed before connecting; they apply on connect) ----------
+
     def settings(self, body: Mapping[str, Any]) -> Json:
-        app = self.app
+        session = self.session
         changed = []
         if "keepalive" in body:
-            app.keepalive.enabled = _bool(body, "keepalive")
-            changed.append(f"Keep-alive {'on' if app.keepalive.enabled else 'off'}")
+            session.set_keepalive(_bool(body, "keepalive"))
+            changed.append(f"Keep-alive {'on' if session.keepalive_enabled() else 'off'}")
         if "csv" in body:
-            app.set_csv_log(_bool(body, "csv"))
-            changed.append(f"CSV log {'on' if app.csv_log.active else 'off'}")
+            session.set_csv_log(_bool(body, "csv"))
+            changed.append(f"CSV log {'on' if session.csv_log.active else 'off'}")
         if "raw" in body:
-            app.set_raw_recording(_bool(body, "raw"))
-            changed.append(f"Raw recording {'on' if app.raw_recorder.active else 'off'}")
+            session.set_raw_recording(_bool(body, "raw"))
+            changed.append(f"Raw capture {'on' if session.raw_recorder.active else 'off'}")
         if "images" in body:
-            app.images.enabled = _bool(body, "images")
-            changed.append(f"StarSense images {'on' if app.images.enabled else 'off'}")
+            session.set_images(_bool(body, "images"))
+            changed.append(f"StarSense images {'on' if session.config.save_starsense_images else 'off'}")
         if not changed:
             raise ApiError(400, "Nothing to change.")
         return {"message": ". ".join(changed) + "."}
 
     def gps(self, body: Mapping[str, Any]) -> Json:
         if not _bool(body, "enabled"):
-            self.app.disable_gps_emulation()
+            self.session.set_gps(None)
             return {"message": "GPS emulation stopped."}
         latitude = _float(body, "latitude")
         longitude = _float(body, "longitude")
         try:
-            self.app.enable_gps_emulation(latitude, longitude)
+            self.session.set_gps((latitude, longitude))
         except ValueError as exc:
             raise ApiError(400, f"{str(exc).capitalize()}.") from exc
-        return {"message": f"GPS emulation started at {latitude:.5f}, {longitude:.5f}."}
-
-    def send(self, body: Mapping[str, Any]) -> Json:
-        device = _byte(body, "device")
-        command = _byte(body, "command")
-        payload_text = str(body.get("payload") or "").replace(" ", "")
-        try:
-            payload = bytes.fromhex(payload_text)
-        except ValueError as exc:
-            raise ApiError(400, "Payload must be hex, for example 03e800.") from exc
-        if not self.app.send(AuxPacket(Addr.SCANNER, device, command, payload)):
-            raise ApiError(503, "The connection to the mount is closed.")
-        name = catalog.command_name(device, command)
-        return {"message": f"Sent {name} (0x{command:02x}) to {catalog.device_name(device)}."}
-
-    def starsense_capture(self, body: Mapping[str, Any]) -> Json:
-        self.app.start_starsense_capture()
-        return {"message": "StarSense capture started. The star list arrives in about 8 seconds."}
-
-    def starsense_sample(self, body: Mapping[str, Any]) -> Json:
-        if not self.app.send_sample_star_list():
-            raise ApiError(503, "The connection to the mount is closed.")
-        return {"message": "Sent the sample star list."}
-
-    def reset_clock(self, body: Mapping[str, Any]) -> Json:
-        self.app.clock.reset()
-        return {"message": "Packet timer reset to zero."}
+        when = "" if self.session.app else " It starts answering as soon as you connect."
+        return {"message": f"GPS emulation set to {latitude:.5f}, {longitude:.5f}.{when}"}
 
 
 # --- body validation --------------------------------------------------------
@@ -161,8 +210,9 @@ def _float(body: Mapping[str, Any], key: str) -> float:
         raise ApiError(400, f"'{key}' must be a number.") from exc
 
 
-def _byte(body: Mapping[str, Any], key: str) -> int:
-    value = body.get(key)
+def _int(body: Mapping[str, Any], key: str, low: int, high: int, default: Optional[int] = None) -> int:
+    value = body.get(key, default)
+    message = f"'{key}' must be a number from {low} to {high}."
     try:
         if isinstance(value, str):
             number = int(value, 0)
@@ -171,7 +221,7 @@ def _byte(body: Mapping[str, Any], key: str) -> int:
         else:
             raise ValueError
     except ValueError as exc:
-        raise ApiError(400, f"'{key}' must be a number from 0 to 255.") from exc
-    if not 0 <= number <= 0xFF:
-        raise ApiError(400, f"'{key}' must be a number from 0 to 255.")
+        raise ApiError(400, message) from exc
+    if not low <= number <= high:
+        raise ApiError(400, message)
     return number

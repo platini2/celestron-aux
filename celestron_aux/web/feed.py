@@ -14,7 +14,7 @@ from ..starsense import parse_star_list
 
 Item = Dict[str, Any]
 
-DEFAULT_BACKLOG = 500
+DEFAULT_BACKLOG = 2000  # enough for a browser opened late to see the whole scan
 _SUBSCRIBER_QUEUE = 2000
 CLOSED = None  # sentinel put on subscriber queues when the feed shuts down
 
@@ -66,11 +66,24 @@ class TrafficFeed:
             if item.get("kind") == "stars":
                 self._latest_stars = item
             subscribers = list(self._subscribers)
+        self._publish(subscribers, item)
+
+    @staticmethod
+    def _publish(subscribers: List["queue.Queue[Optional[Item]]"], item: Item) -> None:
         for subscriber in subscribers:
             try:
                 subscriber.put_nowait(item)
             except queue.Full:
                 pass
+
+    def note(self, text: str) -> None:
+        """Add a status line (connected, disconnected, ...) to the traffic stream."""
+        with self._lock:
+            self._seq += 1
+            item: Item = {"seq": self._seq, "t": None, "dir": "", "raw": "", "kind": "note", "text": text}
+            self._backlog.append(item)
+            subscribers = list(self._subscribers)
+        self._publish(subscribers, item)
 
     def subscribe(self) -> Tuple["queue.Queue[Optional[Item]]", List[Item]]:
         """Return a new subscriber queue and the backlog to send first."""

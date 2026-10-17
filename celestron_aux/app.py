@@ -42,7 +42,11 @@ class AppConfig:
 
 class ScannerApp:
     def __init__(self, transport: Transport, config: Optional[AppConfig] = None,
-                 stream: IO[str] = sys.stdout) -> None:
+                 stream: IO[str] = sys.stdout, *, csv_log: Optional[CsvLogger] = None,
+                 raw_recorder: Optional[RawRecorder] = None) -> None:
+        """``csv_log`` and ``raw_recorder`` may be shared with a longer-lived owner
+        (the web session keeps them open across connections); the app then
+        leaves closing them to that owner."""
         config = config or AppConfig()
         self.config = config
         self.transport = transport
@@ -50,8 +54,9 @@ class ScannerApp:
         self.bus = AuxBus(transport, self.clock)
         self.registry = DeviceRegistry()
         self.console = ConsoleView(stream, verbose=config.verbose, enabled=not config.quiet)
-        self.csv_log = CsvLogger()
-        self.raw_recorder = RawRecorder()
+        self._owns_sinks = csv_log is None and raw_recorder is None
+        self.csv_log = csv_log or CsvLogger()
+        self.raw_recorder = raw_recorder or RawRecorder()
         self.images = StarImageSaver(config.image_dir, enabled=config.save_starsense_images)
         self.gps = GpsEmulator(self.bus.send)
         self.scanner = BusScanner(self.bus, self.registry)
@@ -73,9 +78,9 @@ class ScannerApp:
         self.console.banner(f"AUXBUS scanner {__version__}")
         self.transport.open()
         self.console.message(f"Connected: {self.transport.description}")
-        if self.config.log_csv:
+        if self.config.log_csv and not self.csv_log.active:
             self.csv_log.start(self.config.csv_path)
-        if self.config.record_raw:
+        if self.config.record_raw and not self.raw_recorder.active:
             self.raw_recorder.start(self.config.raw_path)
         self.console.banner("Starting AUXBUS monitor")
         self.bus.start()
@@ -86,8 +91,9 @@ class ScannerApp:
     def close(self) -> None:
         self.keepalive.stop()
         self.bus.stop()
-        self.csv_log.stop()
-        self.raw_recorder.stop()
+        if self._owns_sinks:
+            self.csv_log.stop()
+            self.raw_recorder.stop()
         self.console.banner("Closed")
 
     # --- operations ---------------------------------------------------------

@@ -3,7 +3,7 @@
 Routes:
 
 * ``GET /`` serves the single-page UI.
-* ``GET /api/state`` and ``GET /api/commands?device=N`` return JSON.
+* ``GET /api/state``, ``GET /api/ports`` and ``GET /api/commands?device=N`` return JSON.
 * ``GET /api/events`` streams bus traffic as Server-Sent Events.
 * ``POST /api/...`` performs actions (see ``POST_ROUTES``).
 
@@ -24,9 +24,9 @@ from importlib import resources
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
-from ..app import ScannerApp
 from .api import ApiError, Json, WebApi
-from .feed import CLOSED, TrafficFeed
+from .feed import CLOSED
+from .session import WebSession
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,8 @@ _MAX_BODY = 64 * 1024
 _PING_INTERVAL = 15.0
 
 POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
+    "/api/connect": WebApi.connect,
+    "/api/disconnect": WebApi.disconnect,
     "/api/scan": WebApi.scan,
     "/api/identify": WebApi.identify,
     "/api/settings": WebApi.settings,
@@ -64,12 +66,11 @@ def _load_page() -> bytes:
 
 
 class WebServer:
-    """Serves the UI and API for a ScannerApp. Create it before ``app.start()``."""
+    """Serves the UI and API for a WebSession. Closing it does not close the session."""
 
-    def __init__(self, app: ScannerApp, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
-        self.feed = TrafficFeed()
-        app.bus.subscribe(self.feed)
-        self.api = WebApi(app, self.feed)
+    def __init__(self, session: WebSession, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+        self.feed = session.feed
+        self.api = WebApi(session)
         self._page = _load_page()
         self._stopping = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -113,12 +114,20 @@ def _make_handler(server: WebServer) -> type:
                 self._send_bytes(HTTPStatus.OK, server._page, "text/html; charset=utf-8")
             elif url.path == "/api/state":
                 self._send_json(HTTPStatus.OK, server.api.state())
+            elif url.path == "/api/ports":
+                self._ports()
             elif url.path == "/api/commands":
                 self._commands(parse_qs(url.query))
             elif url.path == "/api/events":
                 self._events()
             else:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
+
+        def _ports(self) -> None:
+            try:
+                self._send_json(HTTPStatus.OK, server.api.ports())
+            except ApiError as exc:
+                self._send_json(exc.status, {"error": exc.message})
 
         def _commands(self, query: Dict[str, Any]) -> None:
             try:

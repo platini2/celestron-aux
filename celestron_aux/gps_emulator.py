@@ -18,6 +18,13 @@ from .protocol.units import degrees_to_bam
 FIRMWARE_VERSION = bytes((11, 1))
 
 
+def validate_position(latitude: float, longitude: float) -> None:
+    if not -90.0 <= latitude <= 90.0:
+        raise ValueError("latitude must be between -90 and 90")
+    if not -180.0 <= longitude <= 180.0:
+        raise ValueError("longitude must be between -180 and 180")
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -47,10 +54,7 @@ class GpsEmulator:
             return self._position
 
     def enable(self, latitude: float, longitude: float) -> None:
-        if not -90.0 <= latitude <= 90.0:
-            raise ValueError("latitude must be between -90 and 90")
-        if not -180.0 <= longitude <= 180.0:
-            raise ValueError("longitude must be between -180 and 180")
+        validate_position(latitude, longitude)
         with self._lock:
             self._position = (latitude, longitude)
 

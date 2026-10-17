@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import serial
 
 from .base import Transport, TransportClosed
 
 log = logging.getLogger(__name__)
+
+
+def list_serial_ports() -> List[Tuple[str, str]]:
+    """(device, description) for every serial port on this computer, e.g. COM10 or /dev/cu.usbserial-1."""
+    from serial.tools import list_ports
+
+    return sorted((port.device, port.description or "") for port in list_ports.comports())
 
 
 class _SerialTransport(Transport):
