@@ -15,25 +15,14 @@ from .catalog import Addr
 from .keepalive import DEFAULT_INTERVAL
 from .protocol import AuxPacket
 from .transport import Transport
+from .transport.factory import MODES, create_transport
 
 if TYPE_CHECKING:
-    from .web import WebServer
-
-MODES = ("wifi", "serial", "hc", "playback")
+    from .web import WebServer, WebSession
 
 
 def make_transport(args: argparse.Namespace) -> Transport:
-    if args.mode == "wifi":
-        from .transport.tcp import TcpTransport
-        return TcpTransport(args.target, args.port)
-    if args.mode == "serial":
-        from .transport.serial_port import SerialBusTransport
-        return SerialBusTransport(args.target)
-    if args.mode == "hc":
-        from .transport.serial_port import HandControllerTransport
-        return HandControllerTransport(args.target)
-    from .transport.playback import PlaybackTransport
-    return PlaybackTransport(Path(args.target), speed=args.speed)
+    return create_transport(args.mode, args.target, tcp_port=args.port, playback_speed=args.speed)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,10 +30,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="celestron-aux",
         description="Scan, monitor and talk to devices on a Celestron AUX bus.",
     )
-    parser.add_argument("mode", choices=MODES,
+    parser.add_argument("mode", nargs="?", choices=MODES,
                         help="wifi: SkyPortal/Evolution Wi-Fi; serial: adapter on an AUX port; "
-                             "hc: through a hand controller; playback: replay a raw capture")
-    parser.add_argument("target", help="IP address (wifi), serial port (serial, hc) or capture file (playback)")
+                             "hc: through a hand controller; playback: replay a raw capture. "
+                             "Optional with --web: then you connect from the browser")
+    parser.add_argument("target", nargs="?",
+                        help="IP address (wifi), serial port (serial, hc) or capture file (playback)")
     parser.add_argument("--port", type=int, default=2000, help="TCP port in wifi mode (default: 2000)")
     parser.add_argument("--speed", type=float, default=1.0, help="playback speed multiplier (default: 1.0)")
     parser.add_argument("--no-scan", action="store_true", help="do not scan the bus on startup")
@@ -62,7 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="do not save StarSense star lists as images")
     parser.add_argument("--web", nargs="?", const="127.0.0.1:8080", metavar="[HOST:]PORT",
                         help="run the browser interface instead of the console one; the console stays "
-                             "silent (default: 127.0.0.1:8080; use 0.0.0.0:8080 to allow other devices)")
+                             "silent. Without a mode and target you choose the connection in the browser "
+                             "(default: 127.0.0.1:8080; use 0.0.0.0:8080 to allow other devices)")
     parser.add_argument("--log-level", default=None,
                         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
                         help="diagnostic log level (default: INFO, or WARNING with --web)")
@@ -279,47 +271,76 @@ class Repl:
             return None
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = build_parser()
     args = parser.parse_args(argv)
-    listen = None
+    if args.mode and not args.target:
+        parser.error(f"{args.mode} mode needs a target (IP address, serial port or capture file)")
+    if not args.mode and not args.web:
+        parser.error("give a mode and target, e.g. 'wifi 1.2.3.4', or use --web to connect from the browser")
+    args.listen = None
     if args.web:
         from .web import parse_listen_address
         try:
-            listen = parse_listen_address(args.web)
+            args.listen = parse_listen_address(args.web)
         except ValueError as exc:
             parser.error(f"--web: {exc}")
-    log_level = args.log_level or ("WARNING" if listen else "INFO")
-    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s", stream=sys.stderr)
+    return args
 
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+    log_level = args.log_level or ("WARNING" if args.listen else "INFO")
+    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s", stream=sys.stderr)
+    if args.listen:
+        return _run_web(args)
+    return _run_console(args)
+
+
+def _run_console(args: argparse.Namespace) -> int:
     app = ScannerApp(make_transport(args), config_from_args(args))
-    web = None
     try:
-        if listen:
-            from .web import WebServer
-            web = WebServer(app, *listen)  # bind before connecting, so a busy port fails fast
         app.start(initial_scan=not args.no_scan and args.mode != "playback")
     except (OSError, ValueError) as exc:
         logging.error("could not start: %s", exc)
-        if web is not None:
-            web.close()
         return 2
     try:
-        if web is not None:
-            _serve_web(web)
-        else:
-            Repl(app).run()
+        Repl(app).run()
     finally:
-        if web is not None:
-            web.close()
         app.close()
     return 0
 
 
-def _serve_web(web: "WebServer") -> None:
+def _run_web(args: argparse.Namespace) -> int:
+    from .web import WebServer, WebSession
+
+    session = WebSession(config_from_args(args))
+    try:
+        web = WebServer(session, *args.listen)  # bind first, so a busy port fails fast
+    except OSError as exc:
+        logging.error("could not start the web interface: %s", exc)
+        session.close()
+        return 2
+    try:
+        if args.mode:
+            session.connect_transport(make_transport(args), mode=args.mode,
+                                      scan=not args.no_scan and args.mode != "playback")
+        _serve_web(web, session)
+    except (OSError, ValueError) as exc:
+        logging.error("could not connect: %s", exc)
+        return 2
+    finally:
+        web.close()
+        session.close()
+    return 0
+
+
+def _serve_web(web: "WebServer", session: "WebSession") -> None:
     host, port = web.address
     shown = "localhost" if host in ("127.0.0.1", "::1") else host
     print(f"Web interface: http://{shown}:{port}/  (press Ctrl+C to stop)", flush=True)
+    if session.app is None:
+        print("Open it and choose how to connect to the mount.", flush=True)
     if host in ("0.0.0.0", "::"):
         print("Any device on your network can open it and control the mount; there is no password.",
               flush=True)

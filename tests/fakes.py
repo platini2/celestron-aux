@@ -71,3 +71,52 @@ def wait_until(condition: Callable[[], bool], timeout: float = 5.0, step: float 
             return True
         time.sleep(step)
     return condition()
+
+
+class FakeTcpMount:
+    """A mount reachable over TCP, like a SkyPortal Wi-Fi module, for end-to-end tests."""
+
+    def __init__(self, versions: Dict[int, bytes], model: Optional[bytes] = None) -> None:
+        import socketserver
+
+        self.versions = versions
+        self.model = model
+        mount = self
+
+        class Handler(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                parser = FrameParser()
+                while True:
+                    try:
+                        data = self.request.recv(4096)
+                    except OSError:
+                        return
+                    if not data:
+                        return
+                    for parsed in parser.feed(data):
+                        request = parsed.frame
+                        if isinstance(request, AuxPacket):
+                            reply = mount.reply_data(request)
+                            if reply is not None:
+                                packet = AuxPacket(request.destination, request.source, request.command, reply)
+                                self.request.sendall(packet.encode())
+
+        class Server(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+            daemon_threads = True
+
+        self._server = Server(("127.0.0.1", 0), Handler)
+        self.port = self._server.server_address[1]
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def reply_data(self, request: AuxPacket) -> Optional[bytes]:
+        if request.command == 0xFE:
+            return self.versions.get(request.destination)
+        if request.command == 0x05 and request.destination == 0x10:
+            return self.model
+        return None
+
+    def close(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
