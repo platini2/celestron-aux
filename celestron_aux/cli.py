@@ -7,7 +7,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence
 
 from . import __version__, catalog
 from .app import AppConfig, ScannerApp
@@ -15,6 +15,9 @@ from .catalog import Addr
 from .keepalive import DEFAULT_INTERVAL
 from .protocol import AuxPacket
 from .transport import Transport
+
+if TYPE_CHECKING:
+    from .web import WebServer
 
 MODES = ("wifi", "serial", "hc", "playback")
 
@@ -57,14 +60,19 @@ def build_parser() -> argparse.ArgumentParser:
                         help="where StarSense images are saved (default: current directory)")
     parser.add_argument("--no-starsense-images", action="store_true",
                         help="do not save StarSense star lists as images")
-    parser.add_argument("--log-level", default="INFO",
-                        choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="diagnostic log level")
+    parser.add_argument("--web", nargs="?", const="127.0.0.1:8080", metavar="[HOST:]PORT",
+                        help="run the browser interface instead of the console one; the console stays "
+                             "silent (default: 127.0.0.1:8080; use 0.0.0.0:8080 to allow other devices)")
+    parser.add_argument("--log-level", default=None,
+                        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+                        help="diagnostic log level (default: INFO, or WARNING with --web)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
 
 def config_from_args(args: argparse.Namespace) -> AppConfig:
     config = AppConfig(
+        quiet=bool(args.web),
         image_dir=args.image_dir,
         save_starsense_images=not args.no_starsense_images,
         verbose=args.verbose,
@@ -272,19 +280,53 @@ class Repl:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
-    logging.basicConfig(level=args.log_level, format="%(levelname)s: %(message)s", stream=sys.stderr)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    listen = None
+    if args.web:
+        from .web import parse_listen_address
+        try:
+            listen = parse_listen_address(args.web)
+        except ValueError as exc:
+            parser.error(f"--web: {exc}")
+    log_level = args.log_level or ("WARNING" if listen else "INFO")
+    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s", stream=sys.stderr)
+
     app = ScannerApp(make_transport(args), config_from_args(args))
+    web = None
     try:
+        if listen:
+            from .web import WebServer
+            web = WebServer(app, *listen)  # bind before connecting, so a busy port fails fast
         app.start(initial_scan=not args.no_scan and args.mode != "playback")
     except (OSError, ValueError) as exc:
         logging.error("could not start: %s", exc)
+        if web is not None:
+            web.close()
         return 2
     try:
-        Repl(app).run()
+        if web is not None:
+            _serve_web(web)
+        else:
+            Repl(app).run()
     finally:
+        if web is not None:
+            web.close()
         app.close()
     return 0
+
+
+def _serve_web(web: "WebServer") -> None:
+    host, port = web.address
+    shown = "localhost" if host in ("127.0.0.1", "::1") else host
+    print(f"Web interface: http://{shown}:{port}/  (press Ctrl+C to stop)", flush=True)
+    if host in ("0.0.0.0", "::"):
+        print("Any device on your network can open it and control the mount; there is no password.",
+              flush=True)
+    try:
+        web.serve_forever()
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

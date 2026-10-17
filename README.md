@@ -18,6 +18,24 @@ celestron-aux playback rawoutput.txt  # replay a recorded session
 (`--csv`, `--raw`, `--no-scan`, `--keepalive`, `--image-dir`, `-v`, ...).
 Inside the session, type `h` to list the interactive commands.
 
+## Web interface
+
+```bash
+celestron-aux wifi 1.2.3.4 --web              # http://localhost:8080
+celestron-aux serial COM3 --web 0.0.0.0:8080  # reachable from a phone or tablet on your network
+```
+
+With `--web` the console stays silent and every console command is available
+as a button in the browser: scans, keep-alive, CSV and raw recording, GPS
+emulation, StarSense captures (with the star field drawn live), and sending any
+command to any detected device. A red night-vision theme keeps your eyes dark
+adapted at the telescope. The page loads nothing from the internet, so it works
+on a mount's own Wi-Fi network.
+
+There is no password: anyone who can open the page can control the mount. The
+default address only accepts connections from the same computer; use
+`0.0.0.0` only on a network you trust.
+
 ## Layout
 
 | Module | Responsibility |
@@ -37,10 +55,14 @@ Inside the session, type `h` to list the interactive commands.
 | `output.py` | Console view, CSV logger, raw recorder |
 | `app.py` | Composition root: wires everything, exposes operations |
 | `cli.py` | Argument parsing and the interactive console |
+| `web/api.py` | Browser operations as plain functions (no HTTP) |
+| `web/feed.py` | Live traffic feed with backlog for each browser |
+| `web/server.py` | Standard-library HTTP server, JSON API and event stream |
+| `web/static/index.html` | The single-page interface |
 
 Dependencies point one way: `protocol` knows nothing about devices; features
-listen to the `AuxBus`; only `app.py` knows about all of them; only `cli.py`
-reads user input.
+listen to the `AuxBus`; only `app.py` knows about all of them; `cli.py` and
+`web/` are two interchangeable front ends on top of `app.py`.
 
 ## Tests
 

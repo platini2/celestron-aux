@@ -21,6 +21,9 @@ celestron-aux = "celestron_aux.cli:main"
 [tool.setuptools.packages.find]
 include = ["celestron_aux*"]
 
+[tool.setuptools.package-data]
+"celestron_aux.web" = ["static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

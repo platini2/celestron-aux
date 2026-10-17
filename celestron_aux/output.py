@@ -24,15 +24,17 @@ def _named(name: str, address: int) -> str:
 class ConsoleView:
     """Prints bus traffic and status messages. Safe to use from any thread."""
 
-    def __init__(self, stream: IO[str], verbose: bool = False) -> None:
+    def __init__(self, stream: IO[str], verbose: bool = False, enabled: bool = True) -> None:
         self._stream = stream
         self._lock = threading.Lock()
         self.verbose = verbose
+        self.enabled = enabled  # False silences all console output (used by the web interface)
 
     # --- bus listener ---------------------------------------------------------
 
     def __call__(self, event: BusEvent) -> None:
-        self.lines(self.format_event(event))
+        if self.enabled:
+            self.lines(self.format_event(event))
 
     def format_event(self, event: BusEvent) -> List[str]:
         stamp = f"{event.timestamp:14.6f}"
@@ -59,6 +61,8 @@ class ConsoleView:
     # --- status output ----------------------------------------------------------
 
     def lines(self, lines: Sequence[str]) -> None:
+        if not self.enabled:
+            return
         with self._lock:
             for line in lines:
                 print(line, file=self._stream)

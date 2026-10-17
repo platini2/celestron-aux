@@ -40,6 +40,12 @@ class GpsEmulator:
         with self._lock:
             return self._position is not None
 
+    @property
+    def position(self) -> Optional[Tuple[float, float]]:
+        """(latitude, longitude) being reported, or None when disabled."""
+        with self._lock:
+            return self._position
+
     def enable(self, latitude: float, longitude: float) -> None:
         if not -90.0 <= latitude <= 90.0:
             raise ValueError("latitude must be between -90 and 90")

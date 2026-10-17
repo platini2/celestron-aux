@@ -35,6 +35,7 @@ class AppConfig:
     record_raw: bool = False
     save_starsense_images: bool = True
     verbose: bool = False
+    quiet: bool = False  # no console output at all (the web interface shows the traffic)
     keepalive: Optional[bool] = None  # None: use the transport's default
     keepalive_interval: float = DEFAULT_INTERVAL
 
@@ -48,7 +49,7 @@ class ScannerApp:
         self.clock = SessionClock()
         self.bus = AuxBus(transport, self.clock)
         self.registry = DeviceRegistry()
-        self.console = ConsoleView(stream, verbose=config.verbose)
+        self.console = ConsoleView(stream, verbose=config.verbose, enabled=not config.quiet)
         self.csv_log = CsvLogger()
         self.raw_recorder = RawRecorder()
         self.images = StarImageSaver(config.image_dir, enabled=config.save_starsense_images)
@@ -101,6 +102,10 @@ class ScannerApp:
         self._in_background("aux-scan", self._scan, full)
         return True
 
+    @property
+    def scanning(self) -> bool:
+        return self._scan_lock.locked()
+
     def identify_mount(self) -> bool:
         return self.scanner.identify_mount()
 
@@ -117,18 +122,24 @@ class ScannerApp:
     def disable_gps_emulation(self) -> None:
         self.gps.disable()
 
-    def toggle_csv_log(self) -> bool:
-        if self.csv_log.active:
-            self.csv_log.stop()
-        else:
+    def set_csv_log(self, enabled: bool) -> None:
+        if enabled and not self.csv_log.active:
             self.csv_log.start(self.config.csv_path)
+        elif not enabled and self.csv_log.active:
+            self.csv_log.stop()
+
+    def toggle_csv_log(self) -> bool:
+        self.set_csv_log(not self.csv_log.active)
         return self.csv_log.active
 
-    def toggle_raw_recording(self) -> bool:
-        if self.raw_recorder.active:
-            self.raw_recorder.stop()
-        else:
+    def set_raw_recording(self, enabled: bool) -> None:
+        if enabled and not self.raw_recorder.active:
             self.raw_recorder.start(self.config.raw_path)
+        elif not enabled and self.raw_recorder.active:
+            self.raw_recorder.stop()
+
+    def toggle_raw_recording(self) -> bool:
+        self.set_raw_recording(not self.raw_recorder.active)
         return self.raw_recorder.active
 
     def start_starsense_capture(self) -> None:
