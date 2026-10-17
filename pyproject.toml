@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "celestron-aux"
+version = "1.0.0"
+description = "Celestron AUX bus scanner, monitor and protocol toolkit"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0" }
+authors = [{ name = "Patricio Latini", email = "p_latini@hotmail.com" }]
+dependencies = ["pyserial>=3.4", "Pillow>=8.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "mypy>=1.0", "types-pyserial"]
+
+[project.scripts]
+celestron-aux = "celestron_aux.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["celestron_aux*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+ignore_missing_imports = true
