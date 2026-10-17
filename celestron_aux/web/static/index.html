@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Celestron AUX</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #e6ebf0;
+    --panel: #fbfcfd;
+    --ink: #14202c;
+    --muted: #586674;
+    --line: #c8d1da;
+    --accent: #1d5c9e;
+    --accent-ink: #ffffff;
+    --danger: #a3261b;
+    --sky: #0c1828;
+    --sky-grid: rgba(150, 180, 215, 0.16);
+    --star: #f6f0cf;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --radius-control: 6px;
+    --radius-panel: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="night"]) {
+      color-scheme: dark;
+      --bg: #0d131a;
+      --panel: #141c25;
+      --ink: #d9e2ea;
+      --muted: #8a98a6;
+      --line: #263342;
+      --accent: #6ea8e6;
+      --accent-ink: #0b1420;
+      --danger: #ff8a7a;
+      --sky: #04080e;
+      --sky-grid: rgba(120, 160, 210, 0.14);
+      --star: #fbf6dc;
+    }
+  }
+  /* Red-only palette that keeps the observer's eyes dark-adapted. */
+  :root[data-theme="night"] {
+    color-scheme: dark;
+    --bg: #080000;
+    --panel: #120202;
+    --ink: #ff5b4a;
+    --muted: #a5372c;
+    --line: #3b0c08;
+    --accent: #ff3a28;
+    --accent-ink: #120202;
+    --danger: #ff9a8c;
+    --sky: #040000;
+    --sky-grid: rgba(255, 60, 40, 0.14);
+    --star: #ff6a58;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.45 var(--sans);
+  }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 28px;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .bar h1 { margin: 0; font-size: 1.35rem; font-weight: 750; letter-spacing: -0.01em; }
+  .conn { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+  .conn::before {
+    content: ""; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--muted);
+  }
+  .conn.up::before { background: #2f9e57; }
+  :root[data-theme="night"] .conn.up::before { background: var(--accent); }
+  .facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; }
+  .facts div { display: flex; gap: 6px; align-items: baseline; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bar .theme { margin-left: auto; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "controls sky"
+      "controls devices"
+      "traffic traffic";
+    gap: 18px;
+    padding: 18px 22px 28px;
+    max-width: 1500px;
+    margin: 0 auto;
+  }
+  .controls { grid-area: controls; display: flex; flex-direction: column; gap: 18px; }
+  .sky { grid-area: sky; }
+  .devices { grid-area: devices; align-self: start; }
+  .traffic { grid-area: traffic; }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "sky" "controls" "devices" "traffic"; padding: 14px; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-panel);
+    padding: 14px 16px 16px;
+  }
+  .panel h2 { margin: 0 0 10px; font-size: 1rem; font-weight: 700; }
+  .hint { margin: 6px 0 0; color: var(--muted); font-size: 0.86rem; }
+
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    border: 1px solid var(--line);
+    background: transparent;
+    border-radius: var(--radius-control);
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  /* Filled buttons would be the brightest thing on screen at night; keep them dim. */
+  :root[data-theme="night"] button.primary { background: #3d0905; color: var(--ink); }
+
+  .switch { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; cursor: pointer; }
+  .switch input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+  .switch small { display: block; color: var(--muted); font-size: 0.82rem; overflow-wrap: anywhere; }
+
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .fields.single { grid-template-columns: 1fr; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.86rem; color: var(--muted); }
+  input[type="text"], input[type="number"], select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--bg);
+    padding: 7px 9px;
+    min-width: 0;
+  }
+  .mono { font-family: var(--mono); }
+
+  .sky-frame {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--sky);
+  }
+  .sky-frame canvas { width: 100%; height: 100%; display: block; }
+  .sky-empty {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; text-align: center;
+    color: #8d9cb0;
+  }
+  :root[data-theme="night"] .sky-empty { color: var(--muted); }
+  .sky-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .sky-head p { margin: 0 0 10px; color: var(--muted); font-size: 0.9rem; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 0.86rem; background: var(--panel); }
+  td.num, .addr { font-family: var(--mono); font-size: 0.86rem; }
+  .addr { color: var(--muted); margin-left: 4px; }
+  .empty-row td { color: var(--muted); }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .toolbar h2 { margin: 0 auto 0 0; }
+  .toolbar input[type="text"] { width: 220px; }
+  .log { max-height: 55vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .log thead th { position: sticky; top: 0; z-index: 1; }
+  .log td { font-size: 0.88rem; }
+  .log td.t { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+  .log td.v { font-family: var(--mono); word-break: break-word; }
+  .log .raw { font-family: var(--mono); color: var(--muted); word-break: break-all; display: none; }
+  body.show-raw .log .raw { display: table-cell; }
+  .dir { font-size: 0.78rem; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); white-space: nowrap; }
+  .dir.tx { border-color: var(--accent); color: var(--accent); }
+  tr.corrupt td { color: var(--danger); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    max-width: min(560px, calc(100vw - 32px));
+    background: var(--ink); color: var(--panel);
+    padding: 10px 16px; border-radius: 8px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .toast.visible { opacity: 1; }
+  .toast.error { background: var(--danger); color: #fff; }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1>Celestron AUX</h1>
+  <span id="conn" class="conn">Connecting…</span>
+  <dl class="facts">
+    <div><dt>Mount</dt><dd id="mount">Not detected</dd></div>
+    <div><dt>Devices</dt><dd id="device-count">0</dd></div>
+    <div><dt>Out-of-frame bytes</dt><dd id="oof">0</dd></div>
+  </dl>
+  <button id="theme" class="theme" type="button" aria-pressed="false">Night vision</button>
+</header>
+
+<main class="layout">
+  <div class="controls">
+    <section class="panel" aria-labelledby="bus-title">
+      <h2 id="bus-title">Bus</h2>
+      <div class="buttons">
+        <button id="scan" class="primary" type="button">Scan the bus</button>
+        <button id="scan-all" type="button">Scan all addresses</button>
+        <button id="identify" type="button">Identify mount</button>
+      </div>
+      <p id="scan-note" class="hint">A full scan probes every address and takes about 40 seconds.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="switches-title">
+      <h2 id="switches-title">Recording and connection</h2>
+      <label class="switch"><input type="checkbox" data-setting="keepalive">
+        <span>Keep-alive<small>Sends a version request when the bus is idle, so Wi-Fi stays connected.</small></span></label>
+      <label class="switch"><input type="checkbox" data-setting="csv">
+        <span>CSV log<small id="csv-path"></small></span></label>
+      <label class="switch"><input type="checkbox" data-setting="raw">
+        <span>Raw capture<small id="raw-path"></small></span></label>
+      <label class="switch"><input type="checkbox" data-setting="images">
+        <span>Save StarSense images<small id="image-dir"></small></span></label>
+      <button id="reset-clock" type="button">Reset packet timer</button>
+    </section>
+
+    <section class="panel" aria-labelledby="gps-title">
+      <h2 id="gps-title">GPS emulation</h2>
+      <div class="fields">
+        <label class="field">Latitude<input id="lat" type="number" step="any" min="-90" max="90" placeholder="-34.6037"></label>
+        <label class="field">Longitude<input id="lon" type="number" step="any" min="-180" max="180" placeholder="-58.3816"></label>
+      </div>
+      <div class="buttons">
+        <button id="gps-toggle" class="primary" type="button">Start GPS emulation</button>
+        <button id="gps-here" type="button">Use this device’s location</button>
+      </div>
+      <p class="hint">Answers the hand controller’s GPS questions with these coordinates and this computer’s UTC time.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="ss-title">
+      <h2 id="ss-title">StarSense</h2>
+      <div class="buttons">
+        <button id="ss-capture" class="primary" type="button">Take a StarSense capture</button>
+        <button id="ss-sample" type="button">Send sample star list</button>
+      </div>
+      <p class="hint">A capture takes about 8 seconds; the star field updates when the list arrives.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="send-title">
+      <h2 id="send-title">Send a command</h2>
+      <div class="fields single">
+        <label class="field">Device<select id="send-device"><option value="">Scan the bus to list devices</option></select></label>
+        <label class="field">Command<select id="send-command" disabled></select></label>
+        <label class="field" id="custom-command-field" hidden>Command code (hex)<input id="custom-command" class="mono" type="text" placeholder="05" autocomplete="off"></label>
+        <label class="field">Payload (hex, optional)<input id="payload" class="mono" type="text" placeholder="03e800" autocomplete="off"></label>
+      </div>
+      <button id="send" class="primary" type="button" disabled>Send command</button>
+    </section>
+  </div>
+
+  <section class="panel sky" aria-labelledby="sky-title">
+    <div class="sky-head">
+      <h2 id="sky-title">Star field</h2>
+      <p id="sky-caption">No star list received yet.</p>
+    </div>
+    <div class="sky-frame">
+      <canvas id="sky" width="1280" height="960" aria-label="Positions of the stars in the last StarSense star list"></canvas>
+      <div id="sky-empty" class="sky-empty">Take a StarSense capture to see what the camera sees.</div>
+    </div>
+  </section>
+
+  <section class="panel devices" aria-labelledby="devices-title">
+    <h2 id="devices-title">Detected devices</h2>
+    <table>
+      <thead><tr><th>Device</th><th>Address</th><th>Firmware</th></tr></thead>
+      <tbody id="devices"><tr class="empty-row"><td colspan="3">No devices yet. Scan the bus to find them.</td></tr></tbody>
+    </table>
+  </section>
+
+  <section class="panel traffic" aria-labelledby="traffic-title">
+    <div class="toolbar">
+      <h2 id="traffic-title">Traffic</h2>
+      <input id="filter" type="text" placeholder="Filter, e.g. GPS or 0x10" aria-label="Filter traffic">
+      <label class="switch"><input id="show-raw" type="checkbox"><span>Raw bytes</span></label>
+      <button id="pause" type="button" aria-pressed="false">Pause</button>
+      <button id="clear" type="button">Clear</button>
+    </div>
+    <div id="log" class="log">
+      <table>
+        <thead><tr><th>Time (s)</th><th></th><th>From</th><th>To</th><th>Command</th><th>Value</th><th class="raw">Raw</th></tr></thead>
+        <tbody id="traffic"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $ = (selector) => document.querySelector(selector);
+const POST_HEADERS = { "Content-Type": "application/json", "X-Requested-With": "celestron-aux" };
+const MAX_ROWS = 2000;
+const hex = (n, width = 2) => "0x" + Number(n).toString(16).padStart(width, "0");
+
+// --- requests and feedback --------------------------------------------------
+
+let toastTimer = 0;
+function say(text, isError = false) {
+  const toast = $("#toast");
+  toast.textContent = text;
+  toast.classList.toggle("error", isError);
+  toast.classList.add("visible");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("visible"), isError ? 6000 : 3500);
+}
+
+async function post(path, body = {}) {
+  const response = await fetch(path, { method: "POST", headers: POST_HEADERS, body: JSON.stringify(body) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+  return data;
+}
+
+async function act(path, body, button) {
+  if (button) button.disabled = true;
+  try {
+    const data = await post(path, body);
+    if (data.message) say(data.message);
+  } catch (error) {
+    say(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+    refresh();
+  }
+}
+
+// --- state ------------------------------------------------------------------
+
+let state = null;
+let shownStarsSeq = 0;
+
+async function refresh() {
+  try {
+    const response = await fetch("/api/state", { cache: "no-store" });
+    state = await response.json();
+    render(state);
+  } catch {
+    setConnection(false, "Web server unreachable");
+  }
+}
+
+function setConnection(up, text) {
+  const conn = $("#conn");
+  conn.textContent = text;
+  conn.classList.toggle("up", up);
+}
+
+function render(s) {
+  setConnection(s.connected, s.connected ? s.connection : `${s.connection} (closed)`);
+  $("#mount").textContent = s.mount;
+  $("#device-count").textContent = s.devices.length;
+  $("#oof").textContent = s.out_of_frame_bytes;
+
+  for (const box of document.querySelectorAll("[data-setting]")) {
+    box.checked = Boolean(s.settings[box.dataset.setting]);
+  }
+  $("#csv-path").textContent = s.settings.csv_path;
+  $("#raw-path").textContent = s.settings.raw_path;
+  $("#image-dir").textContent = `Folder: ${s.settings.image_dir}`;
+
+  for (const id of ["#scan", "#scan-all"]) $(id).disabled = s.scanning || !s.connected;
+  $("#scan").textContent = s.scanning ? "Scanning…" : "Scan the bus";
+
+  const gps = $("#gps-toggle");
+  gps.textContent = s.gps.enabled ? "Stop GPS emulation" : "Start GPS emulation";
+  gps.classList.toggle("primary", !s.gps.enabled);
+  if (s.gps.enabled && document.activeElement !== $("#lat") && document.activeElement !== $("#lon")) {
+    $("#lat").value = s.gps.latitude;
+    $("#lon").value = s.gps.longitude;
+  }
+
+  renderDevices(s.devices);
+  if (s.stars && s.stars.seq !== shownStarsSeq) drawStars(s.stars);
+}
+
+function renderDevices(devices) {
+  const body = $("#devices");
+  body.replaceChildren();
+  if (!devices.length) {
+    const row = body.insertRow();
+    row.className = "empty-row";
+    const cell = row.insertCell();
+    cell.colSpan = 3;
+    cell.textContent = "No devices yet. Scan the bus to find them.";
+  }
+  for (const device of devices) {
+    const row = body.insertRow();
+    row.insertCell().textContent = device.name;
+    const address = row.insertCell();
+    address.className = "num";
+    address.textContent = hex(device.address);
+    row.insertCell().textContent = device.version;
+  }
+
+  const select = $("#send-device");
+  const previous = select.value;
+  select.replaceChildren();
+  if (!devices.length) {
+    select.add(new Option("Scan the bus to list devices", ""));
+  } else {
+    select.add(new Option("Choose a device", ""));
+    for (const device of devices) {
+      select.add(new Option(`${device.name} (${hex(device.address)})`, String(device.address)));
+    }
+  }
+  select.value = devices.some((d) => String(d.address) === previous) ? previous : "";
+  if (select.value !== previous) loadCommands();
+}
+
+// --- send a command ---------------------------------------------------------
+
+async function loadCommands() {
+  const deviceValue = $("#send-device").value;
+  const commandSelect = $("#send-command");
+  commandSelect.replaceChildren();
+  commandSelect.disabled = !deviceValue;
+  $("#send").disabled = !deviceValue;
+  if (!deviceValue) { updateCustomField(); return; }
+  try {
+    const response = await fetch(`/api/commands?device=${deviceValue}`);
+    const data = await response.json();
+    for (const command of data.commands) {
+      commandSelect.add(new Option(`${hex(command.id)}  ${command.name}`, String(command.id)));
+    }
+  } catch {
+    say("Could not load the command list.", true);
+  }
+  commandSelect.add(new Option("Other (enter a code)", "other"));
+  updateCustomField();
+}
+
+function updateCustomField() {
+  $("#custom-command-field").hidden = $("#send-command").value !== "other";
+}
+
+function sendCommand() {
+  const device = Number($("#send-device").value);
+  let command = $("#send-command").value;
+  if (command === "other") {
+    const code = $("#custom-command").value.trim().replace(/^0x/i, "");
+    if (!/^[0-9a-f]{1,2}$/i.test(code)) { say("Enter the command code as one or two hex digits, for example 05.", true); return; }
+    command = parseInt(code, 16);
+  } else {
+    command = Number(command);
+  }
+  act("/api/send", { device, command, payload: $("#payload").value.trim() }, $("#send"));
+}
+
+// --- GPS emulation ----------------------------------------------------------
+
+function toggleGps() {
+  if (state && state.gps.enabled) { act("/api/gps", { enabled: false }, $("#gps-toggle")); return; }
+  const latitude = $("#lat").value, longitude = $("#lon").value;
+  if (latitude === "" || longitude === "") { say("Enter a latitude and longitude first.", true); return; }
+  act("/api/gps", { enabled: true, latitude: Number(latitude), longitude: Number(longitude) }, $("#gps-toggle"));
+}
+
+function useHere() {
+  if (!navigator.geolocation || !window.isSecureContext) {
+    say("Location is only available when this page is opened as localhost or over HTTPS. Enter the coordinates instead.", true);
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      $("#lat").value = position.coords.latitude.toFixed(5);
+      $("#lon").value = position.coords.longitude.toFixed(5);
+      say("Filled in this device’s location.");
+    },
+    (error) => say(`Could not get the location: ${error.message}`, true),
+  );
+}
+
+// --- star field -------------------------------------------------------------
+
+let lastStars = null;
+function drawStars(item) {
+  lastStars = item;
+  shownStarsSeq = item.seq;
+  const canvas = $("#sky");
+  const ctx = canvas.getContext("2d");
+  const css = getComputedStyle(document.documentElement);
+  const sky = css.getPropertyValue("--sky").trim();
+  const grid = css.getPropertyValue("--sky-grid").trim();
+  const star = css.getPropertyValue("--star").trim();
+  const { width, height } = canvas;
+
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = grid;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let x = 160; x < width; x += 160) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
+  for (let y = 160; y < height; y += 160) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
+  ctx.stroke();
+
+  for (const [x, y] of item.stars) {
+    const glow = ctx.createRadialGradient(x, y, 0, x, y, 14);
+    glow.addColorStop(0, star);
+    glow.addColorStop(0.25, star);
+    glow.addColorStop(1, "transparent");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, 14, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  $("#sky-empty").hidden = true;
+  $("#sky-caption").textContent = `${item.stars.length} stars, received at ${item.t.toFixed(1)} s`;
+}
+
+// --- traffic log ------------------------------------------------------------
+
+let lastSeq = 0;
+let paused = false;
+const pending = [];
+
+function describe(item) {
+  if (item.kind === "packet") {
+    return {
+      from: [item.sender, hex(item.sender_id)],
+      to: [item.receiver, hex(item.receiver_id)],
+      command: [item.command, hex(item.command_id)],
+      value: item.value,
+    };
+  }
+  if (item.kind === "stars") {
+    return { from: ["Starsense Camera", "0xb4"], to: ["All", ""], command: ["Star list", ""], value: `${item.stars.length} stars` };
+  }
+  return { from: ["", ""], to: ["", ""], command: ["Corrupt frame", ""], value: item.reason || "" };
+}
+
+function namedCell(row, [name, address]) {
+  const cell = row.insertCell();
+  cell.append(name);
+  if (address) {
+    const span = document.createElement("span");
+    span.className = "addr";
+    span.textContent = address;
+    cell.append(span);
+  }
+}
+
+function addRow(item) {
+  const log = $("#log");
+  const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  const d = describe(item);
+  const row = $("#traffic").insertRow();
+  if (item.kind === "corrupt") row.className = "corrupt";
+
+  const time = row.insertCell();
+  time.className = "t";
+  time.textContent = item.t.toFixed(3);
+  const dir = document.createElement("span");
+  dir.className = `dir ${item.dir}`;
+  dir.textContent = item.dir === "tx" ? "Sent" : "Received";
+  row.insertCell().append(dir);
+  namedCell(row, d.from);
+  namedCell(row, d.to);
+  namedCell(row, d.command);
+  const value = row.insertCell();
+  value.className = "v";
+  value.textContent = d.value;
+  const raw = row.insertCell();
+  raw.className = "raw";
+  raw.textContent = item.raw;
+
+  row.dataset.text = [d.from.join(" "), d.to.join(" "), d.command.join(" "), d.value, item.raw, dir.textContent]
+    .join(" ").toLowerCase();
+  applyFilter(row);
+
+  const body = $("#traffic");
+  while (body.rows.length > MAX_ROWS) body.deleteRow(0);
+  if (stick) log.scrollTop = log.scrollHeight;
+}
+
+function applyFilter(row) {
+  const text = $("#filter").value.trim().toLowerCase();
+  row.hidden = Boolean(text) && !row.dataset.text.includes(text);
+}
+
+function connectEvents() {
+  const events = new EventSource("/api/events");
+  events.onmessage = (message) => {
+    const item = JSON.parse(message.data);
+    if (item.seq === 1 && lastSeq > 0) { lastSeq = 0; $("#traffic").replaceChildren(); } // server restarted
+    if (item.seq <= lastSeq) return; // already shown before a reconnect
+    lastSeq = item.seq;
+    if (item.kind === "stars") drawStars(item);
+    if (paused) {
+      pending.push(item);
+      if (pending.length > MAX_ROWS) pending.shift();
+      $("#pause").textContent = `Resume (${pending.length} waiting)`;
+    } else {
+      addRow(item);
+    }
+  };
+}
+
+// --- wiring -----------------------------------------------------------------
+
+function applyTheme(night) {
+  document.documentElement.toggleAttribute("data-theme", false);
+  if (night) document.documentElement.dataset.theme = "night";
+  $("#theme").setAttribute("aria-pressed", String(night));
+  try { localStorage.setItem("celestron-aux-night", night ? "1" : "0"); } catch { /* storage unavailable */ }
+  if (lastStars) drawStars(lastStars);
+}
+
+$("#scan").addEventListener("click", (e) => act("/api/scan", { full: false }, e.currentTarget));
+$("#scan-all").addEventListener("click", (e) => act("/api/scan", { full: true }, e.currentTarget));
+$("#identify").addEventListener("click", (e) => act("/api/identify", {}, e.currentTarget));
+$("#reset-clock").addEventListener("click", (e) => act("/api/clock/reset", {}, e.currentTarget));
+$("#ss-capture").addEventListener("click", (e) => act("/api/starsense/capture", {}, e.currentTarget));
+$("#ss-sample").addEventListener("click", (e) => act("/api/starsense/sample", {}, e.currentTarget));
+$("#gps-toggle").addEventListener("click", toggleGps);
+$("#gps-here").addEventListener("click", useHere);
+$("#send-device").addEventListener("change", loadCommands);
+$("#send-command").addEventListener("change", updateCustomField);
+$("#send").addEventListener("click", sendCommand);
+for (const box of document.querySelectorAll("[data-setting]")) {
+  box.addEventListener("change", () => act("/api/settings", { [box.dataset.setting]: box.checked }));
+}
+$("#show-raw").addEventListener("change", (e) => document.body.classList.toggle("show-raw", e.currentTarget.checked));
+$("#filter").addEventListener("input", () => { for (const row of $("#traffic").rows) applyFilter(row); });
+$("#clear").addEventListener("click", () => { $("#traffic").replaceChildren(); pending.length = 0; });
+$("#pause").addEventListener("click", (e) => {
+  paused = !paused;
+  e.currentTarget.setAttribute("aria-pressed", String(paused));
+  if (!paused) { pending.splice(0).forEach(addRow); }
+  e.currentTarget.textContent = paused ? "Resume" : "Pause";
+});
+$("#theme").addEventListener("click", () => applyTheme($("#theme").getAttribute("aria-pressed") !== "true"));
+
+let night = false;
+try { night = localStorage.getItem("celestron-aux-night") === "1"; } catch { /* storage unavailable */ }
+applyTheme(night);
+refresh();
+setInterval(refresh, 2000);
+connectEvents();
+</script>
+</body>
+</html>
