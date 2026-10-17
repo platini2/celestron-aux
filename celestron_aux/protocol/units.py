@@ -25,7 +25,7 @@ def degrees_to_bam(degrees: float, size: int = 3) -> bytes:
 
 
 def format_dms(degrees: float) -> str:
-    """Format an angle as signed degrees, minutes and seconds (0.01\" resolution)."""
+    """Format an angle as signed degrees, minutes and seconds (0.01" resolution)."""
     sign = "-" if degrees < 0 else ""
     hundredths = round(abs(degrees) * 360_000)
     whole_degrees, remainder = divmod(hundredths, 360_000)

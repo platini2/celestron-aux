@@ -1,0 +1,291 @@
+"""Command-line entry point and interactive console."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Sequence
+
+from . import __version__, catalog
+from .app import AppConfig, ScannerApp
+from .catalog import Addr
+from .keepalive import DEFAULT_INTERVAL
+from .protocol import AuxPacket
+from .transport import Transport
+
+MODES = ("wifi", "serial", "hc", "playback")
+
+
+def make_transport(args: argparse.Namespace) -> Transport:
+    if args.mode == "wifi":
+        from .transport.tcp import TcpTransport
+        return TcpTransport(args.target, args.port)
+    if args.mode == "serial":
+        from .transport.serial_port import SerialBusTransport
+        return SerialBusTransport(args.target)
+    if args.mode == "hc":
+        from .transport.serial_port import HandControllerTransport
+        return HandControllerTransport(args.target)
+    from .transport.playback import PlaybackTransport
+    return PlaybackTransport(Path(args.target), speed=args.speed)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="celestron-aux",
+        description="Scan, monitor and talk to devices on a Celestron AUX bus.",
+    )
+    parser.add_argument("mode", choices=MODES,
+                        help="wifi: SkyPortal/Evolution Wi-Fi; serial: adapter on an AUX port; "
+                             "hc: through a hand controller; playback: replay a raw capture")
+    parser.add_argument("target", help="IP address (wifi), serial port (serial, hc) or capture file (playback)")
+    parser.add_argument("--port", type=int, default=2000, help="TCP port in wifi mode (default: 2000)")
+    parser.add_argument("--speed", type=float, default=1.0, help="playback speed multiplier (default: 1.0)")
+    parser.add_argument("--no-scan", action="store_true", help="do not scan the bus on startup")
+    parser.add_argument("-v", "--verbose", action="store_true", help="show raw bytes of every frame")
+    parser.add_argument("--keepalive", action=argparse.BooleanOptionalAction, default=None,
+                        help="send keep-alive traffic (default: on for wifi, off otherwise)")
+    parser.add_argument("--keepalive-interval", type=float, default=DEFAULT_INTERVAL, metavar="SECONDS")
+    parser.add_argument("--csv", nargs="?", const="auxbuslog.csv", metavar="PATH",
+                        help="log decoded traffic to CSV from the start (default path: auxbuslog.csv)")
+    parser.add_argument("--raw", nargs="?", const="rawoutput.txt", metavar="PATH",
+                        help="record raw traffic from the start (default path: rawoutput.txt)")
+    parser.add_argument("--image-dir", type=Path, default=Path("."),
+                        help="where StarSense images are saved (default: current directory)")
+    parser.add_argument("--no-starsense-images", action="store_true",
+                        help="do not save StarSense star lists as images")
+    parser.add_argument("--log-level", default="INFO",
+                        choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="diagnostic log level")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    return parser
+
+
+def config_from_args(args: argparse.Namespace) -> AppConfig:
+    config = AppConfig(
+        image_dir=args.image_dir,
+        save_starsense_images=not args.no_starsense_images,
+        verbose=args.verbose,
+        keepalive=args.keepalive,
+        keepalive_interval=args.keepalive_interval,
+    )
+    if args.csv:
+        config.csv_path, config.log_csv = Path(args.csv), True
+    if args.raw:
+        config.raw_path, config.record_raw = Path(args.raw), True
+    return config
+
+
+@dataclass(frozen=True)
+class _Command:
+    key: str
+    description: str
+    run: Callable[[], bool]  # returns True to quit
+
+
+class Repl:
+    """Line-based interactive console on top of a running ScannerApp."""
+
+    prompt = "Enter command: "
+
+    def __init__(self, app: ScannerApp, read: Callable[[str], str] = input,
+                 write: Callable[[str], None] = print) -> None:
+        self.app = app
+        self._read = read
+        self._write = write
+        commands = [
+            _Command("d", "show detected devices", self._show_devices),
+            _Command("c", "send a command to a device", self._send_command),
+            _Command("s", "rescan the bus (known addresses)", lambda: self._scan(full=False)),
+            _Command("a", "rescan the bus (all addresses)", lambda: self._scan(full=True)),
+            _Command("i", "identify the mount", self._identify_mount),
+            _Command("k", "toggle keep-alive", self._toggle_keepalive),
+            _Command("g", "toggle GPS emulation", self._toggle_gps),
+            _Command("v", "toggle verbose output", self._toggle_verbose),
+            _Command("f", "toggle CSV log", self._toggle_csv),
+            _Command("w", "toggle raw capture recording", self._toggle_raw),
+            _Command("ss", "toggle saving StarSense images", self._toggle_images),
+            _Command("4", "trigger a StarSense capture", self._starsense_capture),
+            _Command("3", "send the sample StarSense star list (testing)", self._send_sample),
+            _Command("r", "reset the packet timer", self._reset_clock),
+            _Command("o", "show the out-of-frame byte counter", self._out_of_frame),
+            _Command("h", "show this help", self._help),
+            _Command("q", "quit", lambda: True),
+        ]
+        self._commands: Dict[str, _Command] = {command.key: command for command in commands}
+
+    def run(self) -> None:
+        self._write("Type 'h' for help.")
+        while True:
+            try:
+                key = self._read(self.prompt).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                self._write("")
+                return
+            if not key:
+                continue
+            command = self._commands.get(key)
+            if command is None:
+                self._write(f"Unknown command {key!r}. Type 'h' for help.")
+            elif command.run():
+                return
+
+    # --- commands -----------------------------------------------------------
+
+    def _help(self) -> bool:
+        self.app.console.banner("Commands")
+        self.app.console.lines([f"{c.key:>3}) {c.description}" for c in self._commands.values()])
+        return False
+
+    def _show_devices(self) -> bool:
+        self.app.show_devices()
+        return False
+
+    def _send_command(self) -> bool:
+        devices = self.app.devices()
+        if not devices:
+            self._write("No devices detected yet; run a scan first ('s').")
+            return False
+        self.app.show_devices()
+        index = self._ask_index("Device number: ", len(devices))
+        if index is None:
+            return False
+        address = devices[index][0]
+        commands = catalog.commands_for(address)
+        for number, (command, name) in enumerate(commands):
+            self._write(f"{number:3d}) 0x{command:02x}  {name}")
+        command_id = self._ask_command(commands)
+        if command_id is None:
+            return False
+        payload = self._ask_payload()
+        if payload is None:
+            return False
+        self.app.send(AuxPacket(Addr.SCANNER, address, command_id, payload))
+        return False
+
+    def _scan(self, full: bool) -> bool:
+        if not self.app.start_scan(full):
+            self._write("A scan is already running.")
+        return False
+
+    def _identify_mount(self) -> bool:
+        if not self.app.identify_mount():
+            self._write("No azimuth motor detected; run a scan first.")
+        return False
+
+    def _toggle_keepalive(self) -> bool:
+        keepalive = self.app.keepalive
+        keepalive.enabled = not keepalive.enabled
+        self._write(f"Keep-alive {'enabled' if keepalive.enabled else 'disabled'}.")
+        return False
+
+    def _toggle_gps(self) -> bool:
+        if self.app.gps.enabled:
+            self.app.disable_gps_emulation()
+            self._write("GPS emulation disabled.")
+            return False
+        try:
+            latitude = float(self._read("Latitude (decimal degrees, north positive): "))
+            longitude = float(self._read("Longitude (decimal degrees, east positive): "))
+            self.app.enable_gps_emulation(latitude, longitude)
+        except ValueError as exc:
+            self._write(f"GPS emulation not enabled: {exc}")
+            return False
+        self._write("GPS emulation enabled.")
+        return False
+
+    def _toggle_verbose(self) -> bool:
+        console = self.app.console
+        console.verbose = not console.verbose
+        self._write(f"Verbose output {'on' if console.verbose else 'off'}.")
+        return False
+
+    def _toggle_csv(self) -> bool:
+        if self.app.toggle_csv_log():
+            self._write(f"Logging to {self.app.csv_log.path}.")
+        else:
+            self._write("CSV logging stopped.")
+        return False
+
+    def _toggle_raw(self) -> bool:
+        if self.app.toggle_raw_recording():
+            self._write(f"Recording raw traffic to {self.app.raw_recorder.path}.")
+        else:
+            self._write("Raw recording stopped.")
+        return False
+
+    def _toggle_images(self) -> bool:
+        images = self.app.images
+        images.enabled = not images.enabled
+        self._write(f"StarSense image saving {'on' if images.enabled else 'off'}.")
+        return False
+
+    def _starsense_capture(self) -> bool:
+        self.app.start_starsense_capture()
+        self._write("StarSense capture started (takes about 8 seconds).")
+        return False
+
+    def _send_sample(self) -> bool:
+        self.app.send_sample_star_list()
+        return False
+
+    def _reset_clock(self) -> bool:
+        self.app.clock.reset()
+        return False
+
+    def _out_of_frame(self) -> bool:
+        self._write(f"Out-of-frame bytes: {self.app.out_of_frame_bytes}")
+        return False
+
+    # --- input helpers --------------------------------------------------------
+
+    def _ask_index(self, prompt: str, count: int) -> Optional[int]:
+        answer = self._read(prompt).strip()
+        if answer.isdigit() and int(answer) < count:
+            return int(answer)
+        self._write(f"Expected a number from 0 to {count - 1}.")
+        return None
+
+    def _ask_command(self, commands: Sequence[tuple]) -> Optional[int]:
+        answer = self._read("Command number, or a hex code such as 0x05: ").strip().lower()
+        try:
+            if answer.startswith("0x"):
+                value = int(answer, 16)
+                if 0 <= value <= 0xFF:
+                    return value
+            elif answer.isdigit() and int(answer) < len(commands):
+                return commands[int(answer)][0]
+        except ValueError:
+            pass
+        self._write("Invalid command.")
+        return None
+
+    def _ask_payload(self) -> Optional[bytes]:
+        answer = self._read("Payload in hex (blank for none): ").strip()
+        try:
+            return bytes.fromhex(answer)
+        except ValueError:
+            self._write("Invalid hex payload.")
+            return None
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    logging.basicConfig(level=args.log_level, format="%(levelname)s: %(message)s", stream=sys.stderr)
+    app = ScannerApp(make_transport(args), config_from_args(args))
+    try:
+        app.start(initial_scan=not args.no_scan and args.mode != "playback")
+    except (OSError, ValueError) as exc:
+        logging.error("could not start: %s", exc)
+        return 2
+    try:
+        Repl(app).run()
+    finally:
+        app.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
