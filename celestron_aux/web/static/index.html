@@ -108,7 +108,7 @@
   .devices { grid-area: devices; align-self: start; }
   .traffic { grid-area: traffic; }
   @media (max-width: 860px) {
-    .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "sky" "controls" "devices" "traffic"; padding: 14px; }
+    .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "controls" "sky" "devices" "traffic"; padding: 14px; }
   }
 
   .panel {
@@ -151,6 +151,19 @@
   }
   .mono { font-family: var(--mono); }
 
+  .modes { display: flex; border: 1px solid var(--line); border-radius: var(--radius-control); overflow: hidden; margin-bottom: 8px; }
+  .modes label { flex: 1; position: relative; display: flex; }
+  .modes input { position: absolute; opacity: 0; pointer-events: none; }
+  .modes span { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; padding: 7px 6px; cursor: pointer; font-size: 0.92rem; line-height: 1.2; }
+  .modes label + label span { border-left: 1px solid var(--line); }
+  .modes input:checked + span { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .modes input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+  :root[data-theme="night"] .modes input:checked + span { background: #3d0905; color: var(--ink); }
+  .port-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin: 6px 0 2px; }
+  .port-row .hint { margin: 0; }
+  #mode-hint { margin: 0 0 10px; }
+  #connected-text { margin: 0 0 10px; overflow-wrap: anywhere; }
+
   .sky-frame {
     position: relative;
     aspect-ratio: 4 / 3;
@@ -189,6 +202,7 @@
   .dir { font-size: 0.78rem; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); white-space: nowrap; }
   .dir.tx { border-color: var(--accent); color: var(--accent); }
   tr.corrupt td { color: var(--danger); }
+  tr.note td { color: var(--muted); font-style: italic; }
 
   .toast {
     position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
@@ -206,7 +220,7 @@
 <body>
 <header class="bar">
   <h1>Celestron AUX</h1>
-  <span id="conn" class="conn">Connecting…</span>
+  <span id="conn" class="conn">Not connected</span>
   <dl class="facts">
     <div><dt>Mount</dt><dd id="mount">Not detected</dd></div>
     <div><dt>Devices</dt><dd id="device-count">0</dd></div>
@@ -217,12 +231,39 @@
 
 <main class="layout">
   <div class="controls">
+    <section class="panel" aria-labelledby="connection-title">
+      <h2 id="connection-title">Connection</h2>
+      <div id="connect-form">
+        <div class="modes" role="radiogroup" aria-label="How this computer reaches the mount">
+          <label><input type="radio" name="mode" value="wifi" checked><span>Wi-Fi</span></label>
+          <label><input type="radio" name="mode" value="serial"><span>AUX port</span></label>
+          <label><input type="radio" name="mode" value="hc"><span>Hand controller</span></label>
+        </div>
+        <p id="mode-hint" class="hint"></p>
+        <div id="wifi-fields" class="fields">
+          <label class="field">Mount IP address<input id="wifi-host" type="text" inputmode="decimal" placeholder="1.2.3.4" autocomplete="off"></label>
+          <label class="field">TCP port<input id="wifi-port" type="number" min="1" max="65535" value="2000"></label>
+        </div>
+        <div id="serial-fields" class="fields single" hidden>
+          <label class="field">Serial port<select id="serial-select"></select></label>
+          <label class="field" id="serial-other-field" hidden>Port name<input id="serial-other" class="mono" type="text" placeholder="COM3 or /dev/cu.usbserial-1" autocomplete="off"></label>
+          <div class="port-row"><p id="ports-note" class="hint"></p><button id="refresh-ports" type="button">Refresh</button></div>
+        </div>
+        <label class="switch"><input id="scan-on-connect" type="checkbox" checked><span>Scan the bus after connecting</span></label>
+        <button id="connect" class="primary" type="button">Connect</button>
+      </div>
+      <div id="connected-view" hidden>
+        <p id="connected-text"></p>
+        <button id="disconnect" type="button">Disconnect</button>
+      </div>
+    </section>
+
     <section class="panel" aria-labelledby="bus-title">
       <h2 id="bus-title">Bus</h2>
       <div class="buttons">
         <button id="scan" class="primary" type="button">Scan the bus</button>
         <button id="scan-all" type="button">Scan all addresses</button>
-        <button id="identify" type="button">Identify mount</button>
+        <button id="identify" type="button" data-needs-connection>Identify mount</button>
       </div>
       <p id="scan-note" class="hint">A full scan probes every address and takes about 40 seconds.</p>
     </section>
@@ -230,14 +271,15 @@
     <section class="panel" aria-labelledby="switches-title">
       <h2 id="switches-title">Recording and connection</h2>
       <label class="switch"><input type="checkbox" data-setting="keepalive">
-        <span>Keep-alive<small>Sends a version request when the bus is idle, so Wi-Fi stays connected.</small></span></label>
+        <span>Keep-alive<small>Sends a version request when the bus is idle, so Wi-Fi stays connected. Turns on by itself for Wi-Fi unless you change it.</small></span></label>
       <label class="switch"><input type="checkbox" data-setting="csv">
         <span>CSV log<small id="csv-path"></small></span></label>
       <label class="switch"><input type="checkbox" data-setting="raw">
         <span>Raw capture<small id="raw-path"></small></span></label>
       <label class="switch"><input type="checkbox" data-setting="images">
         <span>Save StarSense images<small id="image-dir"></small></span></label>
-      <button id="reset-clock" type="button">Reset packet timer</button>
+      <p id="pre-connect-hint" class="hint">These apply from the first packet once you connect.</p>
+      <button id="reset-clock" type="button" data-needs-connection>Reset packet timer</button>
     </section>
 
     <section class="panel" aria-labelledby="gps-title">
@@ -256,8 +298,8 @@
     <section class="panel" aria-labelledby="ss-title">
       <h2 id="ss-title">StarSense</h2>
       <div class="buttons">
-        <button id="ss-capture" class="primary" type="button">Take a StarSense capture</button>
-        <button id="ss-sample" type="button">Send sample star list</button>
+        <button id="ss-capture" class="primary" type="button" data-needs-connection>Take a StarSense capture</button>
+        <button id="ss-sample" type="button" data-needs-connection>Send sample star list</button>
       </div>
       <p class="hint">A capture takes about 8 seconds; the star field updates when the list arrives.</p>
     </section>
@@ -373,7 +415,19 @@ function setConnection(up, text) {
 }
 
 function render(s) {
-  setConnection(s.connected, s.connected ? s.connection : `${s.connection} (closed)`);
+  const session = s.session;
+  setConnection(s.connected, !session ? "Not connected"
+    : session.open ? session.connection : `${session.connection} (connection lost)`);
+  $("#connect-form").hidden = Boolean(session);
+  $("#connected-view").hidden = !session;
+  $("#pre-connect-hint").hidden = Boolean(session);
+  if (session) {
+    $("#connected-text").textContent = session.open
+      ? `Connected to ${session.connection}.`
+      : `The connection to ${session.connection} was lost.`;
+    $("#disconnect").textContent = session.open ? "Disconnect" : "Close connection";
+  }
+  for (const button of document.querySelectorAll("[data-needs-connection]")) button.disabled = !s.connected;
   $("#mount").textContent = s.mount;
   $("#device-count").textContent = s.devices.length;
   $("#oof").textContent = s.out_of_frame_bytes;
@@ -432,6 +486,73 @@ function renderDevices(devices) {
   }
   select.value = devices.some((d) => String(d.address) === previous) ? previous : "";
   if (select.value !== previous) loadCommands();
+}
+
+// --- connection -------------------------------------------------------------
+
+const MODE_HINTS = {
+  wifi: "SkyPortal or Evolution Wi-Fi. When the mount runs its own network it is usually at 1.2.3.4.",
+  serial: "A serial adapter plugged into one of the mount’s AUX ports.",
+  hc: "The hand controller’s serial port. It switches to AUX pass-through when you connect.",
+};
+const remembered = (() => { try { return JSON.parse(localStorage.getItem("celestron-aux-connection") || "{}"); } catch { return {}; } })();
+
+function chosenMode() { return document.querySelector('input[name="mode"]:checked').value; }
+
+function showModeFields() {
+  const mode = chosenMode();
+  $("#mode-hint").textContent = MODE_HINTS[mode];
+  $("#wifi-fields").hidden = mode !== "wifi";
+  $("#serial-fields").hidden = mode === "wifi";
+  if (mode !== "wifi" && !$("#serial-select").options.length) loadPorts();
+}
+
+async function loadPorts() {
+  const select = $("#serial-select");
+  const previous = select.value || remembered.serialPort || "";
+  $("#ports-note").textContent = "Looking for serial ports…";
+  let ports = [];
+  try {
+    const response = await fetch("/api/ports", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    ports = data.ports;
+  } catch (error) {
+    $("#ports-note").textContent = error.message || "Could not list serial ports.";
+  }
+  select.replaceChildren();
+  for (const port of ports) {
+    const label = port.description && port.description !== "n/a" ? `${port.device} (${port.description})` : port.device;
+    select.add(new Option(label, port.device));
+  }
+  select.add(new Option("Another port…", ""));
+  const known = ports.some((port) => port.device === previous);
+  select.value = known ? previous : (ports.length ? ports[0].device : "");
+  if (!known && previous && !ports.length) $("#serial-other").value = previous;
+  if (ports.length) $("#ports-note").textContent = `${ports.length} serial port${ports.length === 1 ? "" : "s"} found.`;
+  else if (!$("#ports-note").textContent.startsWith("Could")) $("#ports-note").textContent = "No serial ports found. Plug in the cable and press Refresh.";
+  $("#serial-other-field").hidden = select.value !== "";
+}
+
+async function connect() {
+  const mode = chosenMode();
+  const body = { mode, scan: $("#scan-on-connect").checked };
+  if (mode === "wifi") {
+    body.target = $("#wifi-host").value.trim();
+    body.tcp_port = Number($("#wifi-port").value || 2000);
+  } else {
+    body.target = $("#serial-select").value || $("#serial-other").value.trim();
+  }
+  try {
+    localStorage.setItem("celestron-aux-connection", JSON.stringify({
+      mode, wifiHost: $("#wifi-host").value.trim(), wifiPort: $("#wifi-port").value,
+      serialPort: mode === "wifi" ? remembered.serialPort : body.target,
+    }));
+  } catch { /* storage unavailable */ }
+  const button = $("#connect");
+  button.textContent = "Connecting…";
+  await act("/api/connect", body, button);
+  button.textContent = "Connect";
 }
 
 // --- send a command ---------------------------------------------------------
@@ -569,8 +690,19 @@ function namedCell(row, [name, address]) {
 function addRow(item) {
   const log = $("#log");
   const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-  const d = describe(item);
   const row = $("#traffic").insertRow();
+  if (item.kind === "note") {
+    row.className = "note";
+    row.insertCell().className = "t";
+    const cell = row.insertCell();
+    cell.colSpan = 6;
+    cell.textContent = item.text;
+    row.dataset.text = item.text.toLowerCase();
+    applyFilter(row);
+    if (stick) log.scrollTop = log.scrollHeight;
+    return;
+  }
+  const d = describe(item);
   if (item.kind === "corrupt") row.className = "corrupt";
 
   const time = row.insertCell();
@@ -632,6 +764,11 @@ function applyTheme(night) {
   if (lastStars) drawStars(lastStars);
 }
 
+$("#connect").addEventListener("click", connect);
+$("#disconnect").addEventListener("click", (e) => act("/api/disconnect", {}, e.currentTarget));
+$("#refresh-ports").addEventListener("click", loadPorts);
+$("#serial-select").addEventListener("change", () => { $("#serial-other-field").hidden = $("#serial-select").value !== ""; });
+for (const radio of document.querySelectorAll('input[name="mode"]')) radio.addEventListener("change", showModeFields);
 $("#scan").addEventListener("click", (e) => act("/api/scan", { full: false }, e.currentTarget));
 $("#scan-all").addEventListener("click", (e) => act("/api/scan", { full: true }, e.currentTarget));
 $("#identify").addEventListener("click", (e) => act("/api/identify", {}, e.currentTarget));
@@ -660,6 +797,13 @@ $("#theme").addEventListener("click", () => applyTheme($("#theme").getAttribute(
 let night = false;
 try { night = localStorage.getItem("celestron-aux-night") === "1"; } catch { /* storage unavailable */ }
 applyTheme(night);
+if (remembered.mode) {
+  const radio = document.querySelector(`input[name="mode"][value="${remembered.mode}"]`);
+  if (radio) radio.checked = true;
+}
+if (remembered.wifiHost) $("#wifi-host").value = remembered.wifiHost;
+if (remembered.wifiPort) $("#wifi-port").value = remembered.wifiPort;
+showModeFields();
 refresh();
 setInterval(refresh, 2000);
 connectEvents();
