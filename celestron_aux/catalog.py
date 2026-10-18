@@ -1,12 +1,22 @@
-"""Static knowledge about the Celestron AUX bus.
+"""Knowledge about the Celestron AUX bus: addresses, commands and their names.
 
-Plain data only: bus addresses, command numbers, display names and mount model
-identifiers. Nothing here talks to hardware.
+The built-in tables below can be extended by a user catalog: names you give to
+devices and commands you have decoded, kept in a JSON file of your own that is
+layered over the built-in names (see ``UserCatalog``). Nothing here talks to
+hardware.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Mapping, Optional, Tuple
+import json
+import logging
+import os
+import tempfile
+import threading
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+
+log = logging.getLogger(__name__)
 
 
 class Addr:
@@ -227,28 +237,179 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
     0xBF: {0x10: "LIGHT_LEVEL", 0xFE: "LIGHT_GET_FW_VER"},  # 0x10 both reads and sets
 }
 
+# Commands every AUX device answers. A device's own table can give a more
+# specific name (MTR_GET_VERSION, GPS_GET_FW_VER, ...), which then wins.
+GENERIC_COMMANDS: Mapping[int, str] = {Cmd.GET_VERSION: "GET_VERSION"}
+
 UNKNOWN = "Unknown"
 
 
+MAX_NAME_LENGTH = 40
+DEFAULT_USER_CATALOG = Path.home() / ".celestron-aux" / "catalog.json"
+
+
+class CatalogError(Exception):
+    """The user catalog file cannot be read or saved, or a name is not acceptable."""
+
+
+class UserCatalog:
+    """Your own device and command names, saved as JSON and layered over the built-in ones.
+
+    File format (addresses and commands as hex strings)::
+
+        {"devices": {"0x99": "My accessory"},
+         "commands": {"0x10": {"0x77": "MTR_SOMETHING"}}}
+    """
+
+    def __init__(self, path: Optional[Path] = None) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+        self._devices: Dict[int, str] = {}
+        self._commands: Dict[int, Dict[int, str]] = {}
+        self.load_error: Optional[str] = None  # set when the file exists but cannot be read
+
+    # --- file ---------------------------------------------------------------------
+
+    def load(self) -> None:
+        """Read the file, if there is one. A broken file is reported and left untouched."""
+        if self.path is None or not self.path.exists():
+            return
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            devices = {_hex_key(k): _clean_name(v) for k, v in data.get("devices", {}).items()}
+            commands = {
+                _hex_key(device): {_hex_key(c): _clean_name(n) for c, n in names.items()}
+                for device, names in data.get("commands", {}).items()
+            }
+        except (OSError, ValueError, AttributeError, CatalogError) as exc:
+            self.load_error = f"{self.path}: {exc}"
+            log.warning("could not read the user catalog %s", self.load_error)
+            return
+        with self._lock:
+            self._devices, self._commands = devices, commands
+            self.load_error = None
+
+    def save(self) -> None:
+        if self.path is None:
+            raise CatalogError("No catalog file is configured.")
+        if self.load_error:
+            raise CatalogError(f"Not saving over a catalog file that could not be read ({self.load_error}).")
+        with self._lock:
+            data = {
+                "devices": {f"0x{a:02x}": n for a, n in sorted(self._devices.items())},
+                "commands": {f"0x{d:02x}": {f"0x{c:02x}": n for c, n in sorted(names.items())}
+                             for d, names in sorted(self._commands.items()) if names},
+            }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Write to a temporary file first, so a crash never leaves a half-written catalog.
+        handle, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=".catalog-", suffix=".json")
+        with os.fdopen(handle, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
+            file.write("\n")
+        os.replace(temporary, self.path)
+
+    # --- names --------------------------------------------------------------------
+
+    def device(self, address: int) -> Optional[str]:
+        with self._lock:
+            return self._devices.get(address)
+
+    def commands(self, device: int) -> Dict[int, str]:
+        with self._lock:
+            return dict(self._commands.get(device, {}))
+
+    def set_device(self, address: int, name: Optional[str]) -> None:
+        """Name a device, or forget your name for it with None."""
+        _check_byte(address)
+        with self._lock:
+            if name is None:
+                self._devices.pop(address, None)
+            else:
+                self._devices[address] = _clean_name(name)
+
+    def set_command(self, device: int, command: int, name: Optional[str]) -> None:
+        """Name a command of a device, or forget your name for it with None."""
+        _check_byte(device)
+        _check_byte(command)
+        with self._lock:
+            names = self._commands.setdefault(device, {})
+            if name is None:
+                names.pop(command, None)
+            else:
+                names[command] = _clean_name(name)
+
+    def entries(self) -> List[Dict[str, Any]]:
+        """Every name you have given, devices first."""
+        with self._lock:
+            items: List[Dict[str, Any]] = [
+                {"device": a, "command": None, "name": n} for a, n in sorted(self._devices.items())
+            ]
+            items += [{"device": d, "command": c, "name": n}
+                      for d, names in sorted(self._commands.items()) for c, n in sorted(names.items())]
+        return items
+
+
+def _hex_key(text: str) -> int:
+    value = int(str(text), 16)
+    _check_byte(value)
+    return value
+
+
+def _check_byte(value: int) -> None:
+    if not 0 <= value <= 0xFF:
+        raise CatalogError(f"0x{value:x} is not a bus address or command (0x00-0xff)")
+
+
+def _clean_name(name: object) -> str:
+    text = " ".join(str(name).split())
+    if not text:
+        raise CatalogError("A name cannot be empty.")
+    if len(text) > MAX_NAME_LENGTH or not text.isprintable():
+        raise CatalogError(f"Names must be printable and at most {MAX_NAME_LENGTH} characters.")
+    return text
+
+
+_user = UserCatalog()  # empty until use_user_catalog is called
+
+
+def use_user_catalog(catalog: UserCatalog) -> None:
+    """Make ``catalog`` the user names layered over the built-in tables."""
+    global _user
+    _user = catalog
+
+
+def user_catalog() -> UserCatalog:
+    return _user
+
+
 def device_name(address: int) -> str:
-    return DEVICE_NAMES.get(address, UNKNOWN)
+    return _user.device(address) or DEVICE_NAMES.get(address, UNKNOWN)
 
 
 def is_known_device(address: int) -> bool:
-    return address in DEVICE_NAMES
+    return address in DEVICE_NAMES or _user.device(address) is not None
+
+
+def known_addresses() -> List[int]:
+    """Every address with a name, built-in or yours."""
+    return sorted(set(DEVICE_NAMES) | {e["device"] for e in _user.entries() if e["command"] is None})
+
+
+def _commands(device: int) -> Dict[int, str]:
+    return {**GENERIC_COMMANDS, **_DEVICE_COMMANDS.get(device, {}), **_user.commands(device)}
 
 
 def command_name(device: int, command: int) -> str:
-    return _DEVICE_COMMANDS.get(device, {}).get(command, UNKNOWN)
+    return _commands(device).get(command, UNKNOWN)
 
 
 def is_known_command(device: int, command: int) -> bool:
-    return command in _DEVICE_COMMANDS.get(device, {})
+    return command in _commands(device)
 
 
 def commands_for(device: int) -> List[Tuple[int, str]]:
     """All known commands of ``device``, sorted by command number."""
-    return sorted(_DEVICE_COMMANDS.get(device, {}).items())
+    return sorted(_commands(device).items())
 
 
 def mount_name(model: Optional[int]) -> str:
