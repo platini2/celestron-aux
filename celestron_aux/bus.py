@@ -11,6 +11,10 @@ safely call ``send`` (the GPS emulator does) without deadlocking.
 
 When the transport does not echo our transmissions, ``send`` queues a TX
 event for the sent frame, so listeners see both directions either way.
+
+Marks are notes about what happened ("pressed Align on the hand controller").
+They travel through the same event stream as packets, so every listener (logs,
+console, browser) records them in order with the traffic around them.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Union
+from typing import Callable, List, Optional, Union
 
 from .clock import SessionClock
 from .protocol import AuxPacket, Frame, FrameParser, StarSenseFrame
@@ -37,11 +41,21 @@ class Direction(enum.Enum):
     TX = "tx"
 
 
+MAX_MARK_LENGTH = 200
+
+
+@dataclass(frozen=True)
+class Mark:
+    """A note placed in the traffic stream."""
+
+    text: str
+
+
 @dataclass(frozen=True)
 class BusEvent:
     timestamp: float
     direction: Direction
-    frame: Frame
+    frame: Union[Frame, Mark]
     raw: bytes
 
 
@@ -141,6 +155,22 @@ class AuxBus:
             time.sleep(self._inter_frame_delay)
         return True
 
+    def mark(self, text: str, timestamp: Optional[float] = None) -> Mark:
+        """Place a note in the traffic stream, at ``timestamp`` or now.
+
+        "Now" during a replay is the recorded time of the traffic being replayed,
+        so the mark lines up with what is on screen.
+        """
+        clean = " ".join(text.split())[:MAX_MARK_LENGTH]
+        if not clean:
+            raise ValueError("a mark needs some text")
+        if timestamp is None:
+            recorded = self._transport.recorded_time()
+            timestamp = self._clock.now() if recorded is None else recorded
+        mark = Mark(clean)
+        self._events.put(BusEvent(timestamp, Direction.TX, mark, b""))
+        return mark
+
     def seconds_since_last_tx(self) -> float:
         return time.monotonic() - self._last_tx
 
@@ -160,6 +190,8 @@ class AuxBus:
             except OSError as exc:
                 log.error("receive failed: %s", exc)
                 break
+            for recorded_at, text in self._transport.take_marks():  # marks in a replayed capture
+                self.mark(text, timestamp=recorded_at)
             if not data:
                 continue
             recorded = self._transport.recorded_time()  # playback keeps the original times

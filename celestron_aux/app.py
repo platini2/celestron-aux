@@ -16,6 +16,8 @@ from .clock import SessionClock
 from .discovery import DiscoveryTracker
 from .gps_emulator import FIRMWARE_VERSION, GpsEmulator
 from .keepalive import DEFAULT_INTERVAL, KeepAlive
+from .monitors import FocuserMonitor, GpsMonitor
+from .motion import MountMotion
 from .output import ConsoleView, CsvLogger, RawRecorder
 from .protocol import StarSenseFrame
 from .protocol.units import format_version
@@ -38,6 +40,9 @@ class AppConfig:
     verbose: bool = False
     quiet: bool = False  # no console output at all (the web interface shows the traffic)
     listen_only: bool = False  # never transmit anything
+    motion_enabled: bool = False   # mount position polling and manual slews
+    gps_polling: bool = False      # ask the GPS for its status every few seconds
+    focuser_polling: bool = False  # ask the focuser for its position every second
     keepalive: Optional[bool] = None  # None: use the transport's default
     keepalive_interval: float = DEFAULT_INTERVAL
 
@@ -65,22 +70,27 @@ class ScannerApp:
         self.images = StarImageSaver(config.image_dir, enabled=config.save_starsense_images)
         self.gps = GpsEmulator(self.bus.send)
         self.scanner = BusScanner(self.bus, self.registry)
+        self.motion = MountMotion(self.bus, enabled=config.motion_enabled)
+        self.gps_monitor = GpsMonitor(self.bus, enabled=config.gps_polling)
+        self.focuser = FocuserMonitor(self.bus, enabled=config.focuser_polling)
         keepalive_on = transport.keepalive_by_default if config.keepalive is None else config.keepalive
         self.keepalive = KeepAlive(self.bus, config.keepalive_interval, enabled=keepalive_on)
         self._scan_lock = threading.Lock()
 
         # Order matters only cosmetically: state first, then output, then reactions.
-        for listener in (self.registry, self.discovery, self.console, self.csv_log, self.images, self.gps):
+        for listener in (self.registry, self.discovery, self.motion, self.gps_monitor, self.focuser,
+                         self.console, self.csv_log, self.images, self.gps):
             self.bus.subscribe(listener)
+        self.bus.subscribe(self.raw_recorder.on_event)
         self.bus.add_raw_tap(self.raw_recorder)
 
     # --- lifecycle ----------------------------------------------------------
 
     def start(self, initial_scan: bool = True) -> None:
         """Open the transport and start background work. Raises OSError on connection failure."""
-        from . import __version__
+        from . import __copyright__, __version__
 
-        self.console.banner(f"AUXBUS scanner {__version__}")
+        self.console.banner(f"AUXBUS scanner {__version__}", __copyright__)
         self.transport.open()
         self.console.message(f"Connected: {self.transport.description}")
         if self.config.log_csv and not self.csv_log.active:
@@ -90,10 +100,16 @@ class ScannerApp:
         self.console.banner("Starting AUXBUS monitor")
         self.bus.start()
         self.keepalive.start()
+        self.motion.start()
+        self.gps_monitor.start()
+        self.focuser.start()
         if initial_scan and not self.listen_only:
             self.start_scan()
 
     def close(self) -> None:
+        self.motion.close()  # stops the motors first if anything was moving
+        self.gps_monitor.close()
+        self.focuser.close()
         self.keepalive.stop()
         self.bus.stop()
         if self._owns_sinks:
@@ -105,6 +121,10 @@ class ScannerApp:
 
     def send(self, frame: OutgoingFrame) -> bool:
         return self.bus.send(frame)
+
+    def mark(self, text: str) -> str:
+        """Note what just happened, in every log. Raises ValueError for empty text."""
+        return self.bus.mark(text).text
 
     def start_scan(self, full: bool = False) -> bool:
         """Scan in the background. Returns False if a scan is already running."""
@@ -119,6 +139,8 @@ class ScannerApp:
 
     @listen_only.setter
     def listen_only(self, enabled: bool) -> None:
+        if enabled and self.motion.moving:
+            self.motion.stop()  # last chance: once listen-only is on, not even a stop can be sent
         self.config.listen_only = enabled
         self.bus.listen_only = enabled
 

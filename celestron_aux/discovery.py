@@ -51,6 +51,7 @@ class Discovery:
             "device_name": catalog.device_name(self.device),
             "device_known": self.device_known,
             "command": self.command,
+            "command_known": catalog.is_known_command(self.device, self.command),
             "count": self.count,
             "first_seen": round(self.first_seen, 3),
             "last_seen": round(self.last_seen, 3),
@@ -100,6 +101,16 @@ class DiscoveryTracker:
     def clear(self) -> None:
         with self._lock:
             self._items.clear()
+
+    def prune(self) -> int:
+        """Forget entries the catalog can now name. Returns how many were removed."""
+        with self._lock:
+            known = [key for key, d in self._items.items()
+                     if catalog.is_known_device(d.device) and catalog.is_known_command(d.device, d.command)
+                     and all(catalog.is_known_device(peer) for peer in d.peers)]
+            for key in known:
+                del self._items[key]
+        return len(known)
 
     def __len__(self) -> int:
         with self._lock:

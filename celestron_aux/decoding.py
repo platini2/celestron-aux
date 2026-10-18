@@ -30,11 +30,21 @@ class PacketDescription:
     receiver_id: int
     command: str
     command_id: int
-    value: str
+    value: str        # the decoded payload, or "" when it cannot be decoded
+    payload: str      # the payload bytes as hex, always
+    malformed: bool = False  # a decoder exists but the payload did not fit it
+
+    @property
+    def text(self) -> str:
+        """The value for plain-text output: decoded if possible, otherwise the hex."""
+        if self.value:
+            return self.value
+        return f"{self.payload} (unexpected format)" if self.malformed else self.payload
 
 
 def describe_packet(packet: AuxPacket) -> PacketDescription:
     subject = catalog.subject_device(packet.source, packet.destination)
+    value, malformed = decode_payload(packet, subject)
     return PacketDescription(
         sender=catalog.device_name(packet.source),
         sender_id=packet.source,
@@ -42,21 +52,28 @@ def describe_packet(packet: AuxPacket) -> PacketDescription:
         receiver_id=packet.destination,
         command=catalog.command_name(subject, packet.command),
         command_id=packet.command,
-        value=describe_payload(packet, subject),
+        value=value,
+        payload=packet.data.hex(),
+        malformed=malformed,
     )
 
 
-def describe_payload(packet: AuxPacket, subject: int) -> str:
-    """Decode the payload of ``packet``; falls back to hex for unknown commands."""
+def decode_payload(packet: AuxPacket, subject: int) -> Tuple[str, bool]:
+    """Decode the payload of ``packet``.
+
+    Returns (decoded text or "", malformed). The text is empty when the payload
+    is empty, when no decoder knows the command, or when the payload does not
+    fit the decoder (then ``malformed`` is True).
+    """
     if not packet.data:
-        return ""
+        return "", False
     decoder = _DECODERS.get((subject, packet.command)) or _DECODERS.get((ANY_DEVICE, packet.command))
     if decoder is None:
-        return packet.data.hex()
+        return "", False
     try:
-        return decoder(packet.data, packet.source == subject)
+        return decoder(packet.data, packet.source == subject), False
     except (IndexError, ValueError, struct.error):
-        return f"{packet.data.hex()} (unexpected format)"
+        return "", True
 
 
 def _decodes(devices: Iterable[Optional[int]], commands: Iterable[int]):
@@ -307,7 +324,7 @@ def _light_level(data: bytes, is_reply: bool) -> str:
 @_decodes([Addr.FOCUSER], [0x01])
 def _focuser_position(data: bytes, is_reply: bool) -> str:
     _require(data, 3)
-    return f"Position {_uint(data, 0, 3)}"
+    return str(_uint(data, 0, 3))
 
 
 @_decodes([Addr.FOCUSER], [0x02])

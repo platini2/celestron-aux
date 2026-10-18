@@ -6,11 +6,11 @@ import time
 from typing import Callable, Iterable, List
 
 from .bus import AuxBus
-from .catalog import DEVICE_NAMES, Addr, Cmd
+from . import catalog
+from .catalog import Addr, Cmd
 from .protocol import AuxPacket
 from .registry import DeviceRegistry
 
-KNOWN_ADDRESSES: List[int] = sorted(address for address in DEVICE_NAMES if address != Addr.SCANNER)
 ALL_ADDRESSES: List[int] = [address for address in range(0x01, 0xFF) if address != Addr.SCANNER]
 
 
@@ -37,7 +37,8 @@ class BusScanner:
         Blocks until done (several seconds; about 40 s for a full scan).
         """
         self._registry.clear()
-        self._probe(ALL_ADDRESSES if full else KNOWN_ADDRESSES)
+        known = [address for address in catalog.known_addresses() if address != Addr.SCANNER]
+        self._probe(ALL_ADDRESSES if full else known)
         self._sleep(self._reply_wait)
         if self.identify_mount():
             self._sleep(self._mount_wait)
