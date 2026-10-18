@@ -7,7 +7,8 @@ can show as-is.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Optional
+from pathlib import Path
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 from .. import __version__, catalog
 from ..app import ScannerApp
@@ -18,6 +19,10 @@ from ..transport.tcp import DEFAULT_PORT
 from .session import AlreadyConnected, WebSession
 
 Json = Dict[str, Any]
+Download = Tuple[str, str, bytes]  # file name, content type, body
+
+MAX_REPLAY_SPEED = 1000.0
+LISTEN_ONLY_MESSAGE = "Listen-only mode is on. Turn it off to send anything to the mount."
 
 
 class ApiError(Exception):
@@ -35,6 +40,13 @@ class WebApi:
         app = self.session.app
         if app is None:
             raise ApiError(409, "Not connected. Connect to the mount first.")
+        return app
+
+    def _transmitting_app(self) -> ScannerApp:
+        """The connected app, for actions that send; refused in listen-only mode."""
+        app = self._app()
+        if app.listen_only:
+            raise ApiError(409, LISTEN_ONLY_MESSAGE)
         return app
 
     # --- reads --------------------------------------------------------------
@@ -68,7 +80,9 @@ class WebApi:
                 "raw_path": str(config.raw_path),
                 "images": config.save_starsense_images,
                 "image_dir": str(config.image_dir),
+                "listen_only": session.listen_only,
             },
+            "unknown_count": len(session.discovery),
             "gps": {
                 "enabled": position is not None,
                 "latitude": position[0] if position else None,
@@ -92,6 +106,22 @@ class WebApi:
             raise ApiError(500, f"Could not list serial ports: {exc}") from exc
         return {"ports": [{"device": device, "description": description} for device, description in ports]}
 
+    def discoveries(self) -> Json:
+        return {"items": [item.as_dict() for item in self.session.discovery.snapshot()]}
+
+    def download(self, kind: str) -> Download:
+        """The CSV log, the raw capture, or the unknown-traffic summary as a file."""
+        config = self.session.config
+        if kind == "unknown":
+            return "unknown-traffic.csv", "text/csv; charset=utf-8", self.session.discovery.to_csv().encode("utf-8")
+        if kind == "csv":
+            return _read_log(Path(config.csv_path), "text/csv; charset=utf-8",
+                             "No CSV log yet. Turn on CSV log first.")
+        if kind == "raw":
+            return _read_log(Path(config.raw_path), "text/plain; charset=ascii",
+                             "No raw capture yet. Turn on raw capture first.")
+        raise ApiError(404, "Not found.")
+
     # --- connection ---------------------------------------------------------
 
     def connect(self, body: Mapping[str, Any]) -> Json:
@@ -111,6 +141,19 @@ class WebApi:
             raise ApiError(502, f"Could not connect to {target}: {exc}") from exc
         return {"message": f"Connected: {description}." + (" Scanning the bus." if scan else "")}
 
+    def replay(self, capture: bytes, name: str, speed: float) -> Json:
+        if not capture.strip():
+            raise ApiError(400, "The capture file is empty.")
+        if not 0 < speed <= MAX_REPLAY_SPEED:
+            raise ApiError(400, f"Speed must be between 0 and {MAX_REPLAY_SPEED:g}.")
+        try:
+            self.session.replay(capture, name or "capture", speed)
+        except AlreadyConnected as exc:
+            raise ApiError(409, str(exc)) from exc
+        except ValueError as exc:
+            raise ApiError(400, f"That file is not a raw capture: {exc}") from exc
+        return {"message": f"Replaying {name or 'capture'}."}
+
     def disconnect(self, body: Mapping[str, Any]) -> Json:
         if not self.session.disconnect():
             raise ApiError(409, "Not connected.")
@@ -120,17 +163,17 @@ class WebApi:
 
     def scan(self, body: Mapping[str, Any]) -> Json:
         full = _bool(body, "full", default=False)
-        if not self._app().start_scan(full):
+        if not self._transmitting_app().start_scan(full):
             raise ApiError(409, "A scan is already running.")
         return {"message": "Scanning all addresses (about 40 seconds)." if full else "Scanning the bus."}
 
     def identify(self, body: Mapping[str, Any]) -> Json:
-        if not self._app().identify_mount():
+        if not self._transmitting_app().identify_mount():
             raise ApiError(409, "No azimuth motor detected yet. Scan the bus first.")
         return {"message": "Asked the azimuth motor for the mount model."}
 
     def send(self, body: Mapping[str, Any]) -> Json:
-        app = self._app()
+        app = self._transmitting_app()
         device = _int(body, "device", 0, 0xFF)
         command = _int(body, "command", 0, 0xFF)
         payload_text = str(body.get("payload") or "").replace(" ", "")
@@ -144,11 +187,11 @@ class WebApi:
         return {"message": f"Sent {name} (0x{command:02x}) to {catalog.device_name(device)}."}
 
     def starsense_capture(self, body: Mapping[str, Any]) -> Json:
-        self._app().start_starsense_capture()
+        self._transmitting_app().start_starsense_capture()
         return {"message": "StarSense capture started. The star list arrives in about 8 seconds."}
 
     def starsense_sample(self, body: Mapping[str, Any]) -> Json:
-        if not self._app().send_sample_star_list():
+        if not self._transmitting_app().send_sample_star_list():
             raise ApiError(503, "The connection to the mount is closed.")
         return {"message": "Sent the sample star list."}
 
@@ -161,6 +204,10 @@ class WebApi:
     def settings(self, body: Mapping[str, Any]) -> Json:
         session = self.session
         changed = []
+        if "listen_only" in body:
+            session.set_listen_only(_bool(body, "listen_only"))
+            changed.append("Listen-only mode on: nothing will be transmitted" if session.listen_only
+                           else "Listen-only mode off")
         if "keepalive" in body:
             session.set_keepalive(_bool(body, "keepalive"))
             changed.append(f"Keep-alive {'on' if session.keepalive_enabled() else 'off'}")
@@ -177,6 +224,10 @@ class WebApi:
             raise ApiError(400, "Nothing to change.")
         return {"message": ". ".join(changed) + "."}
 
+    def clear_discoveries(self, body: Mapping[str, Any]) -> Json:
+        self.session.discovery.clear()
+        return {"message": "Unknown-traffic list cleared."}
+
     def gps(self, body: Mapping[str, Any]) -> Json:
         if not _bool(body, "enabled"):
             self.session.set_gps(None)
@@ -189,6 +240,13 @@ class WebApi:
             raise ApiError(400, f"{str(exc).capitalize()}.") from exc
         when = "" if self.session.app else " It starts answering as soon as you connect."
         return {"message": f"GPS emulation set to {latitude:.5f}, {longitude:.5f}.{when}"}
+
+
+def _read_log(path: Path, content_type: str, missing: str) -> Download:
+    try:
+        return path.name, content_type, path.read_bytes()
+    except FileNotFoundError as exc:
+        raise ApiError(404, missing) from exc
 
 
 # --- body validation --------------------------------------------------------

@@ -3,11 +3,15 @@
 Routes:
 
 * ``GET /`` serves the single-page UI.
-* ``GET /api/state``, ``GET /api/ports`` and ``GET /api/commands?device=N`` return JSON.
+* ``GET /api/state``, ``/api/ports``, ``/api/discoveries`` and
+  ``/api/commands?device=N`` return JSON.
+* ``GET /api/download/csv|raw|unknown`` downloads a log file.
 * ``GET /api/events`` streams bus traffic as Server-Sent Events.
+* ``POST /api/replay?name=...&speed=...`` replays a raw capture sent as the body.
 * ``POST /api/...`` performs actions (see ``POST_ROUTES``).
 
-POST requests must carry ``X-Requested-With: celestron-aux`` and a JSON body.
+POST requests must carry ``X-Requested-With: celestron-aux``; all but the
+replay upload take a JSON body.
 A browser only sends that header from this page itself, so other websites
 cannot drive the mount through a visitor's browser.
 """
@@ -34,6 +38,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 REQUIRED_HEADER = ("X-Requested-With", "celestron-aux")
 _MAX_BODY = 64 * 1024
+_MAX_UPLOAD = 50 * 1024 * 1024  # replay captures
 _PING_INTERVAL = 15.0
 
 POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
@@ -47,6 +52,7 @@ POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
     "/api/starsense/capture": WebApi.starsense_capture,
     "/api/starsense/sample": WebApi.starsense_sample,
     "/api/clock/reset": WebApi.reset_clock,
+    "/api/discoveries/clear": WebApi.clear_discoveries,
 }
 
 
@@ -116,6 +122,10 @@ def _make_handler(server: WebServer) -> type:
                 self._send_json(HTTPStatus.OK, server.api.state())
             elif url.path == "/api/ports":
                 self._ports()
+            elif url.path == "/api/discoveries":
+                self._send_json(HTTPStatus.OK, server.api.discoveries())
+            elif url.path.startswith("/api/download/"):
+                self._download(url.path.rsplit("/", 1)[-1])
             elif url.path == "/api/commands":
                 self._commands(parse_qs(url.query))
             elif url.path == "/api/events":
@@ -128,6 +138,20 @@ def _make_handler(server: WebServer) -> type:
                 self._send_json(HTTPStatus.OK, server.api.ports())
             except ApiError as exc:
                 self._send_json(exc.status, {"error": exc.message})
+
+        def _download(self, kind: str) -> None:
+            try:
+                name, content_type, body = server.api.download(kind)
+            except ApiError as exc:
+                self._send_json(exc.status, {"error": exc.message})
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
         def _commands(self, query: Dict[str, Any]) -> None:
             try:
@@ -171,8 +195,9 @@ def _make_handler(server: WebServer) -> type:
         # --- POST -------------------------------------------------------------
 
         def do_POST(self) -> None:
-            route = POST_ROUTES.get(urlsplit(self.path).path)
-            if route is None:
+            url = urlsplit(self.path)
+            route = POST_ROUTES.get(url.path)
+            if route is None and url.path != "/api/replay":
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
                 return
             name, value = REQUIRED_HEADER
@@ -180,8 +205,10 @@ def _make_handler(server: WebServer) -> type:
                 self._send_json(HTTPStatus.FORBIDDEN, {"error": "Missing request header."})
                 return
             try:
-                body = self._read_json()
-                result = route(server.api, body)
+                if route is None:
+                    result = self._replay(parse_qs(url.query))
+                else:
+                    result = route(server.api, self._read_json())
             except ApiError as exc:
                 self._send_json(exc.status, {"error": exc.message})
                 return
@@ -190,6 +217,19 @@ def _make_handler(server: WebServer) -> type:
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Internal error; see the log."})
                 return
             self._send_json(HTTPStatus.OK, result)
+
+        def _replay(self, query: Dict[str, Any]) -> Json:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > _MAX_UPLOAD:
+                raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                               f"Capture files are limited to {_MAX_UPLOAD // (1024 * 1024)} MB.")
+            capture = self.rfile.read(length) if length else b""
+            try:
+                speed = float(query.get("speed", ["1"])[0])
+            except ValueError as exc:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "Speed must be a number.") from exc
+            name = query.get("name", ["capture"])[0][:200]
+            return server.api.replay(capture, name, speed)
 
         def _read_json(self) -> Mapping[str, Any]:
             length = int(self.headers.get("Content-Length") or 0)

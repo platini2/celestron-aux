@@ -9,6 +9,7 @@ from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 
 from ..bus import BusEvent
 from ..decoding import describe_packet
+from ..discovery import is_unknown
 from ..protocol import AuxPacket, CorruptFrame, StarSenseFrame
 from ..starsense import parse_star_list
 
@@ -35,6 +36,7 @@ def event_to_item(event: BusEvent, seq: int) -> Item:
             receiver=d.receiver, receiver_id=d.receiver_id,
             command=d.command, command_id=d.command_id,
             value=d.value,
+            unknown=is_unknown(frame),
         )
     elif isinstance(frame, StarSenseFrame):
         stars = parse_star_list(frame.payload)
