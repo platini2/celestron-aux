@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Web interface layout: detected devices at the top, then the traffic log, then
+  the star field.
+- The traffic log shows the newest message on top and follows new messages
+  while you are at the top. Scrolled down, the messages you are reading stay
+  in place and a button counts the newer ones; scrolling back to the top (or
+  pressing the button) resumes following.
+- Each traffic message stays on one line.
+
 ## 1.0.0
 
 First release of the rewritten AUXBUS scanner, which replaces the original

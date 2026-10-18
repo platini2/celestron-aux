@@ -93,22 +93,23 @@
   .layout {
     display: grid;
     grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto auto 1fr;
     grid-template-areas:
-      "controls sky"
       "controls devices"
-      "traffic traffic";
+      "controls traffic"
+      "controls sky";
+    align-items: start;
     gap: 18px;
     padding: 18px 22px 28px;
     max-width: 1500px;
     margin: 0 auto;
   }
   .controls { grid-area: controls; display: flex; flex-direction: column; gap: 18px; }
-  .sky { grid-area: sky; }
-  .devices { grid-area: devices; align-self: start; }
+  .devices { grid-area: devices; }
   .traffic { grid-area: traffic; }
+  .sky { grid-area: sky; }
   @media (max-width: 860px) {
-    .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "controls" "sky" "devices" "traffic"; padding: 14px; }
+    .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "controls" "devices" "traffic" "sky"; padding: 14px; }
   }
 
   .panel {
@@ -192,11 +193,13 @@
   .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
   .toolbar h2 { margin: 0 auto 0 0; }
   .toolbar input[type="text"] { width: 220px; }
-  .log { max-height: 55vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .log { max-height: 60vh; overflow: auto; overflow-anchor: none; border: 1px solid var(--line); border-radius: 8px; }
+  #to-latest { border-color: var(--accent); color: var(--accent); }
   .log thead th { position: sticky; top: 0; z-index: 1; }
   .log td { font-size: 0.88rem; }
+  .log th, .log td { white-space: nowrap; }  /* one line per message */
   .log td.t { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
-  .log td.v { font-family: var(--mono); word-break: break-word; }
+  .log td.v { font-family: var(--mono); word-break: break-word; white-space: normal; min-width: 12ch; }
   .log .raw { font-family: var(--mono); color: var(--muted); word-break: break-all; display: none; }
   body.show-raw .log .raw { display: table-cell; }
   .dir { font-size: 0.78rem; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); white-space: nowrap; }
@@ -316,17 +319,6 @@
     </section>
   </div>
 
-  <section class="panel sky" aria-labelledby="sky-title">
-    <div class="sky-head">
-      <h2 id="sky-title">Star field</h2>
-      <p id="sky-caption">No star list received yet.</p>
-    </div>
-    <div class="sky-frame">
-      <canvas id="sky" width="1280" height="960" aria-label="Positions of the stars in the last StarSense star list"></canvas>
-      <div id="sky-empty" class="sky-empty">Take a StarSense capture to see what the camera sees.</div>
-    </div>
-  </section>
-
   <section class="panel devices" aria-labelledby="devices-title">
     <h2 id="devices-title">Detected devices</h2>
     <table>
@@ -340,6 +332,7 @@
       <h2 id="traffic-title">Traffic</h2>
       <input id="filter" type="text" placeholder="Filter, e.g. GPS or 0x10" aria-label="Filter traffic">
       <label class="switch"><input id="show-raw" type="checkbox"><span>Raw bytes</span></label>
+      <button id="to-latest" type="button" hidden>Newer messages</button>
       <button id="pause" type="button" aria-pressed="false">Pause</button>
       <button id="clear" type="button">Clear</button>
     </div>
@@ -348,6 +341,17 @@
         <thead><tr><th>Time (s)</th><th></th><th>From</th><th>To</th><th>Command</th><th>Value</th><th class="raw">Raw</th></tr></thead>
         <tbody id="traffic"></tbody>
       </table>
+    </div>
+  </section>
+
+  <section class="panel sky" aria-labelledby="sky-title">
+    <div class="sky-head">
+      <h2 id="sky-title">Star field</h2>
+      <p id="sky-caption">No star list received yet.</p>
+    </div>
+    <div class="sky-frame">
+      <canvas id="sky" width="1280" height="960" aria-label="Positions of the stars in the last StarSense star list"></canvas>
+      <div id="sky-empty" class="sky-empty">Take a StarSense capture to see what the camera sees.</div>
     </div>
   </section>
 </main>
@@ -660,6 +664,16 @@ function drawStars(item) {
 let lastSeq = 0;
 let paused = false;
 const pending = [];
+const FOLLOW_ZONE = 24;  // px from the top that still counts as "at the top"
+let unseen = 0;          // rows that arrived while scrolled down
+
+function atTop() { return $("#log").scrollTop <= FOLLOW_ZONE; }
+
+function updateLatestButton() {
+  const button = $("#to-latest");
+  button.hidden = unseen === 0 || atTop();
+  button.textContent = `${unseen} newer message${unseen === 1 ? "" : "s"}`;
+}
 
 function describe(item) {
   if (item.kind === "packet") {
@@ -687,10 +701,30 @@ function namedCell(row, [name, address]) {
   }
 }
 
+// Newest rows go on top. While the reader is at the top the log follows them;
+// once they scroll down, inserted rows push the content down by exactly their
+// height, which is compensated so the rows being read stay where they are.
 function addRow(item) {
   const log = $("#log");
-  const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-  const row = $("#traffic").insertRow();
+  const following = atTop();
+  const row = buildRow(item);
+  const body = $("#traffic");
+  const heightBefore = log.scrollHeight;
+  body.prepend(row);
+  if (following) {
+    log.scrollTop = 0;
+  } else {
+    // Measure the whole log rather than the row: row heights are fractional,
+    // and adding up rounded row heights would slowly drift.
+    log.scrollTop += log.scrollHeight - heightBefore;
+    if (!row.hidden) unseen += 1;
+  }
+  while (body.rows.length > MAX_ROWS) body.deleteRow(-1);  // oldest are at the bottom
+  updateLatestButton();
+}
+
+function buildRow(item) {
+  const row = document.createElement("tr");
   if (item.kind === "note") {
     row.className = "note";
     row.insertCell().className = "t";
@@ -699,8 +733,7 @@ function addRow(item) {
     cell.textContent = item.text;
     row.dataset.text = item.text.toLowerCase();
     applyFilter(row);
-    if (stick) log.scrollTop = log.scrollHeight;
-    return;
+    return row;
   }
   const d = describe(item);
   if (item.kind === "corrupt") row.className = "corrupt";
@@ -725,10 +758,7 @@ function addRow(item) {
   row.dataset.text = [d.from.join(" "), d.to.join(" "), d.command.join(" "), d.value, item.raw, dir.textContent]
     .join(" ").toLowerCase();
   applyFilter(row);
-
-  const body = $("#traffic");
-  while (body.rows.length > MAX_ROWS) body.deleteRow(0);
-  if (stick) log.scrollTop = log.scrollHeight;
+  return row;
 }
 
 function applyFilter(row) {
@@ -785,7 +815,9 @@ for (const box of document.querySelectorAll("[data-setting]")) {
 }
 $("#show-raw").addEventListener("change", (e) => document.body.classList.toggle("show-raw", e.currentTarget.checked));
 $("#filter").addEventListener("input", () => { for (const row of $("#traffic").rows) applyFilter(row); });
-$("#clear").addEventListener("click", () => { $("#traffic").replaceChildren(); pending.length = 0; });
+$("#clear").addEventListener("click", () => { $("#traffic").replaceChildren(); pending.length = 0; unseen = 0; updateLatestButton(); });
+$("#log").addEventListener("scroll", () => { if (atTop()) unseen = 0; updateLatestButton(); }, { passive: true });
+$("#to-latest").addEventListener("click", () => { $("#log").scrollTop = 0; unseen = 0; updateLatestButton(); });
 $("#pause").addEventListener("click", (e) => {
   paused = !paused;
   e.currentTarget.setAttribute("aria-pressed", String(paused));
