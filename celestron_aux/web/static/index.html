@@ -208,8 +208,8 @@
   .log th, .log td { white-space: nowrap; }  /* one line per message */
   .log td.t { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
   .log td.v { font-family: var(--mono); word-break: break-word; white-space: normal; min-width: 12ch; }
-  .log .raw { font-family: var(--mono); color: var(--muted); word-break: break-all; display: none; }
-  body.show-raw .log .raw { display: table-cell; }
+  .log .raw, .log .hex { font-family: var(--mono); color: var(--muted); word-break: break-all; display: none; }
+  body.show-raw .log .raw, body.show-hex .log .hex { display: table-cell; }
   .dir { font-size: 0.78rem; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); white-space: nowrap; }
   .dir.tx { border-color: var(--accent); color: var(--accent); }
   tr.corrupt td { color: var(--danger); }
@@ -225,6 +225,67 @@
   .discoveries .payloads { font-family: var(--mono); font-size: 0.82rem; color: var(--muted); white-space: normal; word-break: break-all; }
   .discoveries .payloads b { font-family: var(--sans); font-weight: 600; color: var(--ink); }
   .discoveries-wrap { overflow-x: auto; }
+
+  .positions { display: grid; gap: 10px; margin: 0 0 6px; }
+  .positions div { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 8px; }
+  .positions dt { color: var(--muted); font-size: 0.86rem; }
+  .positions dd { margin: 0; font-family: var(--mono); font-size: 1.2rem; font-variant-numeric: tabular-nums; text-align: right; }
+  .positions .age { grid-column: 1 / -1; font-family: var(--sans); font-size: 0.78rem; color: var(--muted); }
+  .pad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-areas: ". up ." "left stop right" ". down .";
+    gap: 6px;
+    max-width: 250px;
+    margin: 12px auto 10px;
+    border-radius: var(--radius-control);
+  }
+  .pad button {
+    min-height: 54px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    font-size: 0.82rem;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .pad .arrow { font-size: 1.05rem; line-height: 1; }
+  .pad-up { grid-area: up; } .pad-down { grid-area: down; } .pad-left { grid-area: left; } .pad-right { grid-area: right; }
+  .pad-stop { grid-area: stop; border-color: var(--danger); color: var(--danger); font-weight: 700; font-size: 0.95rem !important; }
+  .pad button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  :root[data-theme="night"] .pad button.active { background: #3d0905; color: var(--ink); }
+  .rate-row { display: flex; align-items: center; gap: 10px; font-size: 0.86rem; color: var(--muted); }
+  .rate-row input { flex: 1; accent-color: var(--accent); }
+  .rate-row output { font-family: var(--mono); color: var(--ink); min-width: 1ch; }
+
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .panel-head h2 { margin: 0; }
+  .panel-head .switch { padding: 0; align-items: center; font-size: 0.86rem; color: var(--muted); }
+  .panel-head .switch input { margin: 0; }
+  .inactive { opacity: 0.45; }
+  .readouts { display: grid; gap: 6px; margin: 0; }
+  .readouts div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .readouts dt { color: var(--muted); font-size: 0.86rem; }
+  .readouts dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+  .mark-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .mark-row input { flex: 1; }
+  tr.mark td { font-weight: 600; color: var(--ink); }
+  tr.mark td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .mark-badge { font-size: 0.78rem; padding: 1px 6px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); }
+  :root[data-theme="night"] .mark-badge { background: #3d0905; color: var(--ink); }
+  .name-editor td { background: var(--bg); }
+  .name-editor .fields { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 4px 0 8px; }
+  .names-list { margin-top: 12px; }
+  .names-list summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+  .names-list table { margin-top: 6px; }
+  .warning { color: var(--danger); }
+
+  .site-footer {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 4px 22px 28px;
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+  .site-footer p { margin: 0; }
 
   .toast {
     position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
@@ -304,6 +365,76 @@
       <p id="scan-note" class="hint">A full scan probes every address and takes about 40 seconds.</p>
     </section>
 
+    <section class="panel" aria-labelledby="send-title">
+      <h2 id="send-title">Send a command</h2>
+      <div class="fields single">
+        <label class="field">Device<select id="send-device"><option value="">Scan the bus to list devices</option></select></label>
+        <label class="field">Command<select id="send-command" disabled></select></label>
+        <label class="field" id="custom-command-field" hidden>Command code (hex)<input id="custom-command" class="mono" type="text" placeholder="05" autocomplete="off"></label>
+        <label class="field">Payload (hex, optional)<input id="payload" class="mono" type="text" placeholder="03e800" autocomplete="off"></label>
+      </div>
+      <button id="send" class="primary" type="button" disabled>Send command</button>
+    </section>
+
+    <section class="panel" aria-labelledby="motion-title">
+      <div class="panel-head">
+        <h2 id="motion-title">Mount position</h2>
+        <label class="switch"><input type="checkbox" data-setting="motion_enabled"><span>On</span></label>
+      </div>
+      <div id="motion-body">
+      <dl class="positions">
+        <div><dt>Azimuth / RA axis</dt><dd id="pos-azm">Unknown</dd><dd class="age" id="age-azm"></dd></div>
+        <div><dt>Altitude / Dec axis</dt><dd id="pos-alt">Unknown</dd><dd class="age" id="age-alt"></dd></div>
+      </dl>
+      <div id="pad" class="pad" tabindex="0" role="group" aria-label="Move the mount. Hold a direction, or use the arrow keys while this pad has focus.">
+        <button class="pad-up" type="button" data-axis="alt" data-dir="1" data-transmits><span class="arrow" aria-hidden="true">▲</span>Alt +</button>
+        <button class="pad-left" type="button" data-axis="azm" data-dir="-1" data-transmits><span class="arrow" aria-hidden="true">◀</span>Az −</button>
+        <button id="stop-motion" class="pad-stop" type="button" data-transmits>Stop</button>
+        <button class="pad-right" type="button" data-axis="azm" data-dir="1" data-transmits><span class="arrow" aria-hidden="true">▶</span>Az +</button>
+        <button class="pad-down" type="button" data-axis="alt" data-dir="-1" data-transmits><span class="arrow" aria-hidden="true">▼</span>Alt −</button>
+      </div>
+      <label class="rate-row">Speed<input id="rate" type="range" min="1" max="9" value="5"><output id="rate-value" for="rate">5</output></label>
+      <p class="hint">When on, both motors are asked for their position every second; these are motor axis angles, not sky coordinates. Hold a direction to move; the mount stops when you let go, and by itself if this page loses contact. Watch the telescope while it moves: the motors do not know where the tripod is.</p>
+      </div>
+    </section>
+
+    <section id="gps-panel" class="panel" aria-labelledby="gps-status-title" hidden>
+      <div class="panel-head">
+        <h2 id="gps-status-title">GPS</h2>
+        <label class="switch"><input type="checkbox" data-setting="gps_polling"><span>On</span></label>
+      </div>
+      <dl id="gps-body" class="readouts">
+        <div><dt>Status</dt><dd id="gps-linked">Unknown</dd></div>
+        <div><dt>Time valid</dt><dd id="gps-time-valid">Unknown</dd></div>
+        <div><dt>Latitude</dt><dd id="gps-lat">Unknown</dd></div>
+        <div><dt>Longitude</dt><dd id="gps-lon">Unknown</dd></div>
+        <div><dt>Date and time (UTC)</dt><dd id="gps-utc">Unknown</dd></div>
+        <div><dt>Satellites</dt><dd id="gps-sats">Unknown</dd></div>
+      </dl>
+      <p class="hint"><span id="gps-age"></span> When on, the GPS is asked for its status every 5 seconds. Satellite figures are the two counts the GPS reports.</p>
+    </section>
+
+    <section id="focuser-panel" class="panel" aria-labelledby="focuser-title" hidden>
+      <div class="panel-head">
+        <h2 id="focuser-title">Focuser</h2>
+        <label class="switch"><input type="checkbox" data-setting="focuser_polling"><span>On</span></label>
+      </div>
+      <dl id="focuser-body" class="readouts">
+        <div><dt>Position</dt><dd id="focuser-position">Unknown</dd></div>
+        <div><dt>Motion</dt><dd id="focuser-moving">Unknown</dd></div>
+        <div><dt>Travel limits</dt><dd id="focuser-limits">Unknown</dd></div>
+      </dl>
+      <p class="hint"><span id="focuser-age"></span> When on, the focuser is asked for its position every second.</p>
+    </section>
+
+    <section id="starsense-panel" class="panel" aria-labelledby="ss-title" hidden>
+      <h2 id="ss-title">StarSense</h2>
+      <div class="buttons">
+        <button id="ss-capture" class="primary" type="button" data-transmits>Take a StarSense capture</button>
+      </div>
+      <p class="hint">A capture takes about 8 seconds; the star field updates when the list arrives.</p>
+    </section>
+
     <section class="panel" aria-labelledby="switches-title">
       <h2 id="switches-title">Recording and connection</h2>
       <label class="switch"><input type="checkbox" data-setting="keepalive">
@@ -321,7 +452,6 @@
       <label class="switch"><input type="checkbox" data-setting="images">
         <span>Save StarSense images<small id="image-dir"></small></span></label>
       <p id="pre-connect-hint" class="hint">These apply from the first packet once you connect.</p>
-      <button id="reset-clock" type="button" data-needs-connection>Reset packet timer</button>
     </section>
 
     <section class="panel" aria-labelledby="gps-title">
@@ -337,25 +467,14 @@
       <p class="hint">Answers the hand controller’s GPS questions with these coordinates and this computer’s UTC time.</p>
     </section>
 
-    <section class="panel" aria-labelledby="ss-title">
-      <h2 id="ss-title">StarSense</h2>
+    <section class="panel" aria-labelledby="ss-emulation-title">
+      <h2 id="ss-emulation-title">StarSense emulation</h2>
       <div class="buttons">
-        <button id="ss-capture" class="primary" type="button" data-transmits>Take a StarSense capture</button>
         <button id="ss-sample" type="button" data-transmits>Send sample star list</button>
       </div>
-      <p class="hint">A capture takes about 8 seconds; the star field updates when the list arrives.</p>
+      <p class="hint">Sends a star list recorded from a real StarSense camera onto the bus, as a camera would. Useful for testing what the hand controller does with it.</p>
     </section>
 
-    <section class="panel" aria-labelledby="send-title">
-      <h2 id="send-title">Send a command</h2>
-      <div class="fields single">
-        <label class="field">Device<select id="send-device"><option value="">Scan the bus to list devices</option></select></label>
-        <label class="field">Command<select id="send-command" disabled></select></label>
-        <label class="field" id="custom-command-field" hidden>Command code (hex)<input id="custom-command" class="mono" type="text" placeholder="05" autocomplete="off"></label>
-        <label class="field">Payload (hex, optional)<input id="payload" class="mono" type="text" placeholder="03e800" autocomplete="off"></label>
-      </div>
-      <button id="send" class="primary" type="button" disabled>Send command</button>
-    </section>
   </div>
 
   <section class="panel devices" aria-labelledby="devices-title">
@@ -371,14 +490,21 @@
       <h2 id="traffic-title">Traffic</h2>
       <input id="filter" type="text" placeholder="Filter, e.g. GPS or 0x10" aria-label="Filter traffic">
       <label class="switch"><input id="only-unknown" type="checkbox"><span>Only unknown</span></label>
+      <label class="switch"><input id="show-hex" type="checkbox"><span>Value hex</span></label>
       <label class="switch"><input id="show-raw" type="checkbox"><span>Raw bytes</span></label>
       <button id="to-latest" type="button" hidden>Newer messages</button>
+      <button id="reset-clock" type="button" data-needs-connection title="Restart the time column at zero">Reset timer</button>
       <button id="pause" type="button" aria-pressed="false">Pause</button>
       <button id="clear" type="button">Clear</button>
     </div>
+    <div class="mark-row">
+      <input id="mark-text" type="text" maxlength="200" autocomplete="off"
+        placeholder="Mark what just happened, e.g. pressed Align on the hand controller (press M)" aria-label="Mark what just happened">
+      <button id="mark" type="button">Mark</button>
+    </div>
     <div id="log" class="log">
       <table>
-        <thead><tr><th>Time (s)</th><th></th><th>From</th><th>To</th><th>Command</th><th>Value</th><th class="raw">Raw</th></tr></thead>
+        <thead><tr><th>Time (s)</th><th></th><th>From</th><th>To</th><th>Command</th><th>Value</th><th class="hex">Value (hex)</th><th class="raw">Raw</th></tr></thead>
         <tbody id="traffic"></tbody>
       </table>
     </div>
@@ -392,10 +518,18 @@
     </div>
     <div class="discoveries-wrap">
       <table class="discoveries">
-        <thead><tr><th>Device</th><th>Command</th><th>Count</th><th>Talks with</th><th>Example payloads</th><th>Last seen (s)</th></tr></thead>
-        <tbody id="discoveries"><tr class="empty-row"><td colspan="6">Nothing unknown yet. Packets the catalog cannot name are collected here, with example payloads, to help decode new devices.</td></tr></tbody>
+        <thead><tr><th>Device</th><th>Command</th><th>Count</th><th>Talks with</th><th>Example payloads</th><th>Last seen (s)</th><th></th></tr></thead>
+        <tbody id="discoveries"><tr class="empty-row"><td colspan="7">Nothing unknown yet. Packets the catalog cannot name are collected here, with example payloads, to help decode new devices.</td></tr></tbody>
       </table>
     </div>
+    <details class="names-list">
+      <summary>Your names (<span id="names-count">0</span>)</summary>
+      <p id="names-path" class="hint"></p>
+      <table>
+        <thead><tr><th>Device</th><th>Command</th><th>Your name</th><th></th></tr></thead>
+        <tbody id="names"><tr class="empty-row"><td colspan="4">None yet. Use Name it on unknown traffic.</td></tr></tbody>
+      </table>
+    </details>
   </section>
 
   <section class="panel sky" aria-labelledby="sky-title">
@@ -409,6 +543,10 @@
     </div>
   </section>
 </main>
+
+<footer class="site-footer">
+  <p><span id="app-name">celestron-aux</span> <span id="app-version"></span>. <span id="app-copyright"></span></p>
+</footer>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
@@ -473,6 +611,8 @@ function setConnection(up, text) {
 }
 
 function render(s) {
+  $("#app-version").textContent = s.version;
+  $("#app-copyright").textContent = s.copyright;
   const session = s.session;
   const replaying = session && session.mode === "playback";
   const connectionName = session ? session.connection.replace(/^playback /, "Replay of ") : "";
@@ -518,6 +658,12 @@ function render(s) {
     $("#lon").value = s.gps.longitude;
   }
 
+  $("#mark-text").disabled = $("#mark").disabled = !session;
+  if (s.catalog.names !== shownNamesCount) loadNames(s.catalog.names);
+  renderMotion(s.motion, canTransmit);
+  renderGps(s.gps_status);
+  $("#starsense-panel").hidden = !s.devices.some((device) => device.address === 0xb4);
+  renderFocuser(s.focuser);
   renderDevices(s.devices);
   if (s.stars && s.stars.seq !== shownStarsSeq) drawStars(s.stars);
 }
@@ -652,6 +798,108 @@ async function connect() {
   button.textContent = "Connect";
 }
 
+// --- mount position and motion ----------------------------------------------
+
+const AXES = { azm: 0x10, alt: 0x11 };
+let held = null;  // the direction currently held down
+
+function showAge(axis, age) {
+  $(`#age-${axis}`).textContent = age === null ? "" : age < 2 ? "Updated just now" : `Updated ${Math.round(age)} s ago`;
+}
+
+function renderMotion(motion, canTransmit) {
+  const on = Boolean(motion && motion.enabled);
+  $("#motion-body").classList.toggle("inactive", !on);
+  for (const button of document.querySelectorAll(".pad button")) button.disabled = !canTransmit || !on;
+  $("#rate").disabled = !on;
+  if (!on && held) releaseMove();
+  for (const axis of Object.keys(AXES)) {
+    const state = motion ? motion.axes[axis] : null;
+    $(`#pos-${axis}`).textContent = state && state.dms ? state.dms : "Unknown";
+    showAge(axis, state ? state.age : null);
+  }
+}
+
+function updatedText(age) {
+  return age === null ? "" : age < 2 ? "Updated just now." : `Updated ${Math.round(age)} s ago.`;
+}
+
+const yesNo = (value, yes, no) => (value === null || value === undefined ? "Unknown" : value ? yes : no);
+
+function renderGps(gps) {
+  $("#gps-panel").hidden = !(gps && gps.detected);
+  if (!gps) return;
+  $("#gps-body").classList.toggle("inactive", !gps.enabled);
+  $("#gps-linked").textContent = yesNo(gps.linked, "Linked", "Not linked");
+  $("#gps-time-valid").textContent = yesNo(gps.time_valid, "Yes", "No");
+  $("#gps-lat").textContent = gps.latitude ? gps.latitude.dms : "Unknown";
+  $("#gps-lon").textContent = gps.longitude ? gps.longitude.dms : "Unknown";
+  $("#gps-utc").textContent = gps.utc || "Unknown";
+  $("#gps-sats").textContent = gps.satellites ? gps.satellites.join(" / ") : "Unknown";
+  $("#gps-age").textContent = updatedText(gps.age);
+}
+
+function renderFocuser(focuser) {
+  $("#focuser-panel").hidden = !(focuser && focuser.detected);
+  if (!focuser) return;
+  $("#focuser-body").classList.toggle("inactive", !focuser.enabled);
+  $("#focuser-position").textContent = focuser.position === null ? "Unknown" : focuser.position;
+  $("#focuser-moving").textContent = yesNo(focuser.moving, "Moving", "Stopped");
+  $("#focuser-limits").textContent = focuser.limits ? `${focuser.limits[0]} to ${focuser.limits[1]}` : "Unknown";
+  $("#focuser-age").textContent = updatedText(focuser.age);
+}
+
+function showPosition(item) {  // live positions straight from the traffic stream
+  if (item.kind !== "packet" || item.command_id !== 0x01 || !item.value) return;
+  const axis = Object.keys(AXES).find((name) => AXES[name] === item.sender_id);
+  if (!axis) return;
+  $(`#pos-${axis}`).textContent = item.value;
+  showAge(axis, 0);
+}
+
+async function sendMove() {
+  if (!held) return;
+  try {
+    await post("/api/motion/move", { axis: held.axis, direction: held.direction, rate: Number($("#rate").value) });
+  } catch (error) {
+    say(error.message, true);
+    releaseMove();
+  }
+}
+
+function holdMove(button) {
+  if (!button || button.disabled) return;
+  releaseMove();
+  held = { axis: button.dataset.axis, direction: Number(button.dataset.dir), button, timer: 0 };
+  button.classList.add("active");
+  sendMove();
+  held.timer = setInterval(sendMove, 300);  // the server stops the axis if these stop arriving
+}
+
+function releaseMove() {
+  if (!held) return;
+  const { axis, button, timer } = held;
+  held = null;
+  clearInterval(timer);
+  button.classList.remove("active");
+  post("/api/motion/stop", { axis }).catch((error) => say(error.message, true));
+}
+
+// --- marks ----------------------------------------------------------------------
+
+async function markNow() {
+  const input = $("#mark-text");
+  const text = input.value.trim();
+  if (!text) { say("Type what just happened first.", true); input.focus(); return; }
+  try {
+    const data = await post("/api/mark", { text });
+    say(data.message);
+    input.value = "";
+  } catch (error) {
+    say(error.message, true);
+  }
+}
+
 // --- downloads --------------------------------------------------------------
 
 async function download(kind) {
@@ -698,13 +946,16 @@ function payloadLine(cell, label, payloads) {
   cell.append(line);
 }
 
+let editingKey = null;  // the discovery being named; the table is not redrawn meanwhile
+
 function renderDiscoveries(items) {
+  if (editingKey) return;
   const body = $("#discoveries");
   body.replaceChildren();
   if (!items.length) {
     const cell = body.insertRow().insertCell();
     cell.parentElement.className = "empty-row";
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.textContent = "Nothing unknown yet. Packets the catalog cannot name are collected here, with example payloads, to help decode new devices.";
     return;
   }
@@ -726,7 +977,128 @@ function renderDiscoveries(items) {
     const seen = row.insertCell();
     seen.className = "num";
     seen.textContent = item.last_seen.toFixed(1);
+    const action = row.insertCell();
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "link-button";
+    button.textContent = "Name it";
+    button.addEventListener("click", () => openNameEditor(row, item));
+    action.append(button);
   }
+}
+
+function nameField(label, placeholder) {
+  const wrap = document.createElement("label");
+  wrap.className = "field";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.maxLength = 40;
+  input.placeholder = placeholder;
+  wrap.append(label, input);
+  return [wrap, input];
+}
+
+function openNameEditor(row, item) {
+  closeNameEditor();
+  editingKey = `${item.device}:${item.command}`;
+  const editor = document.createElement("tr");
+  editor.className = "name-editor";
+  const cell = editor.insertCell();
+  cell.colSpan = 7;
+  const fields = document.createElement("div");
+  fields.className = "fields";
+  let deviceInput = null, commandInput = null;
+  if (!item.device_known) {
+    const [wrap, input] = nameField(`Name for device ${hex(item.device)}`, "e.g. Polar finder");
+    fields.append(wrap);
+    deviceInput = input;
+  }
+  if (!item.command_known) {
+    const [wrap, input] = nameField(`Name for command ${hex(item.command)}`, "e.g. MTR_GET_TEMPERATURE");
+    fields.append(wrap);
+    commandInput = input;
+  }
+  const buttons = document.createElement("div");
+  buttons.className = "buttons";
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "primary";
+  save.textContent = "Save name";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  buttons.append(save, cancel);
+  cell.append(fields, buttons);
+  row.after(editor);
+  (deviceInput || commandInput)?.focus();
+
+  const submit = async () => {
+    const body = { device: item.device, command: item.command,
+                   device_name: deviceInput ? deviceInput.value.trim() : "",
+                   command_name: commandInput ? commandInput.value.trim() : "" };
+    save.disabled = true;
+    try {
+      const data = await post("/api/catalog/name", body);
+      say(data.message);
+      closeNameEditor();
+      shownUnknownCount = -1;
+      refresh();
+    } catch (error) {
+      say(error.message, true);
+      save.disabled = false;
+    }
+  };
+  save.addEventListener("click", submit);
+  cancel.addEventListener("click", closeNameEditor);
+  editor.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
+    if (e.key === "Escape") closeNameEditor();
+  });
+}
+
+function closeNameEditor() {
+  document.querySelectorAll(".name-editor").forEach((row) => row.remove());
+  editingKey = null;
+}
+
+// --- your names ---------------------------------------------------------------
+
+let shownNamesCount = -1;
+
+async function loadNames(count) {
+  try {
+    const response = await fetch("/api/catalog", { cache: "no-store" });
+    const data = await response.json();
+    shownNamesCount = count;
+    $("#names-count").textContent = data.entries.length;
+    const path = $("#names-path");
+    path.classList.toggle("warning", Boolean(data.load_error));
+    path.textContent = data.load_error
+      ? `Your names file could not be read, so it will not be changed: ${data.load_error}`
+      : `Saved in ${data.path}. They are kept across sessions and upgrades.`;
+    const body = $("#names");
+    body.replaceChildren();
+    if (!data.entries.length) {
+      const cell = body.insertRow().insertCell();
+      cell.parentElement.className = "empty-row";
+      cell.colSpan = 4;
+      cell.textContent = "None yet. Use Name it on unknown traffic.";
+    }
+    for (const entry of data.entries) {
+      const row = body.insertRow();
+      namedCell(row, [entry.device_label, hex(entry.device)]);
+      const command = row.insertCell();
+      command.className = "num";
+      command.textContent = entry.command === null ? "(device)" : hex(entry.command);
+      row.insertCell().textContent = entry.name;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "link-button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", (e) => act("/api/catalog/remove", { device: entry.device, command: entry.command }, e.currentTarget));
+      row.insertCell().append(remove);
+    }
+  } catch { /* try again on the next refresh */ }
 }
 
 // --- send a command ---------------------------------------------------------
@@ -852,12 +1224,13 @@ function describe(item) {
       to: [item.receiver, hex(item.receiver_id)],
       command: [item.command, hex(item.command_id)],
       value: item.value,
+      payload: item.payload || "",
     };
   }
   if (item.kind === "stars") {
-    return { from: ["Starsense Camera", "0xb4"], to: ["All", ""], command: ["Star list", ""], value: `${item.stars.length} stars` };
+    return { from: ["Starsense Camera", "0xb4"], to: ["All", ""], command: ["Star list", ""], value: `${item.stars.length} stars`, payload: "" };
   }
-  return { from: ["", ""], to: ["", ""], command: ["Corrupt frame", ""], value: item.reason || "" };
+  return { from: ["", ""], to: ["", ""], command: ["Corrupt frame", ""], value: item.reason || "", payload: "" };
 }
 
 function namedCell(row, [name, address]) {
@@ -895,11 +1268,27 @@ function addRow(item) {
 
 function buildRow(item) {
   const row = document.createElement("tr");
+  if (item.kind === "mark") {
+    row.className = "mark";
+    const time = row.insertCell();
+    time.className = "t";
+    time.textContent = item.t.toFixed(3);
+    const badge = document.createElement("span");
+    badge.className = "mark-badge";
+    badge.textContent = "Mark";
+    row.insertCell().append(badge);
+    const cell = row.insertCell();
+    cell.colSpan = 6;
+    cell.textContent = item.text;
+    row.dataset.text = `mark ${item.text}`.toLowerCase();
+    applyFilter(row);
+    return row;
+  }
   if (item.kind === "note") {
     row.className = "note";
     row.insertCell().className = "t";
     const cell = row.insertCell();
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.textContent = item.text;
     row.dataset.text = item.text.toLowerCase();
     applyFilter(row);
@@ -922,11 +1311,14 @@ function buildRow(item) {
   const value = row.insertCell();
   value.className = "v";
   value.textContent = d.value;
+  const payload = row.insertCell();
+  payload.className = "hex";
+  payload.textContent = d.payload;
   const raw = row.insertCell();
   raw.className = "raw";
   raw.textContent = item.raw;
 
-  row.dataset.text = [d.from.join(" "), d.to.join(" "), d.command.join(" "), d.value, item.raw, dir.textContent]
+  row.dataset.text = [d.from.join(" "), d.to.join(" "), d.command.join(" "), d.value, d.payload, item.raw, dir.textContent]
     .join(" ").toLowerCase();
   applyFilter(row);
   return row;
@@ -946,6 +1338,7 @@ function connectEvents() {
     if (item.seq <= lastSeq) return; // already shown before a reconnect
     lastSeq = item.seq;
     if (item.kind === "stars") drawStars(item);
+    showPosition(item);
     if (paused) {
       pending.push(item);
       if (pending.length > MAX_ROWS) pending.shift();
@@ -986,6 +1379,7 @@ for (const box of document.querySelectorAll("[data-setting]")) {
   box.addEventListener("change", () => act("/api/settings", { [box.dataset.setting]: box.checked }));
 }
 $("#show-raw").addEventListener("change", (e) => document.body.classList.toggle("show-raw", e.currentTarget.checked));
+$("#show-hex").addEventListener("change", (e) => document.body.classList.toggle("show-hex", e.currentTarget.checked));
 $("#filter").addEventListener("input", () => { for (const row of $("#traffic").rows) applyFilter(row); });
 $("#only-unknown").addEventListener("change", () => { for (const row of $("#traffic").rows) applyFilter(row); });
 for (const button of document.querySelectorAll("[data-download]")) {
@@ -1001,6 +1395,43 @@ $("#pause").addEventListener("click", (e) => {
   if (!paused) { pending.splice(0).forEach(addRow); }
   e.currentTarget.textContent = paused ? "Resume" : "Pause";
 });
+for (const button of document.querySelectorAll(".pad [data-axis]")) {
+  button.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { button.setPointerCapture(e.pointerId); } catch { /* still works without capture */ }
+    holdMove(button);
+  });
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) button.addEventListener(type, releaseMove);
+  button.addEventListener("contextmenu", (e) => e.preventDefault());  // long press on phones
+  button.addEventListener("keydown", (e) => {
+    if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); holdMove(button); }
+  });
+  button.addEventListener("keyup", (e) => { if (e.key === " " || e.key === "Enter") releaseMove(); });
+}
+const ARROW_KEYS = { ArrowUp: ["alt", 1], ArrowDown: ["alt", -1], ArrowLeft: ["azm", -1], ArrowRight: ["azm", 1] };
+$("#pad").addEventListener("keydown", (e) => {
+  const target = ARROW_KEYS[e.key];
+  if (!target) return;
+  e.preventDefault();
+  if (!e.repeat) holdMove($(`.pad [data-axis="${target[0]}"][data-dir="${target[1]}"]`));
+});
+$("#pad").addEventListener("keyup", (e) => { if (ARROW_KEYS[e.key]) releaseMove(); });
+$("#stop-motion").addEventListener("click", (e) => {
+  if (held) { clearInterval(held.timer); held.button.classList.remove("active"); held = null; }
+  act("/api/motion/stop", {}, e.currentTarget);
+});
+$("#mark").addEventListener("click", markNow);
+$("#mark-text").addEventListener("keydown", (e) => { if (e.key === "Enter") markNow(); });
+document.addEventListener("keydown", (e) => {  // M jumps to the mark box from anywhere
+  const typing = e.target.closest && e.target.closest("input, textarea, select, [contenteditable]");
+  if ((e.key === "m" || e.key === "M") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !$("#mark-text").disabled) {
+    e.preventDefault();
+    $("#mark-text").focus();
+  }
+});
+$("#rate").addEventListener("input", (e) => { $("#rate-value").textContent = e.currentTarget.value; });
+window.addEventListener("blur", releaseMove);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseMove(); });
 $("#theme").addEventListener("click", () => applyTheme($("#theme").getAttribute("aria-pressed") !== "true"));
 
 let night = false;
