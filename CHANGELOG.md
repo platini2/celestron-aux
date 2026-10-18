@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.0.1
+
+### Changed
+
+- Motor commands 0x02 and 0x17 are named `MTR_GOTO_FAST` and `MTR_GOTO_SLOW`
+  (were `MTR_GOTO` and `MTR_GOTO2`).
+- Motor command 0x49 is named `MTR_GET_SWITCH_CALIBRATION`; it was listed as a
+  second `MTR_SET_SWITCH_CALIBRATION`, which is 0x48.
+- Battery command 0x18 is named `BAT_GET_MAX_CURRENT` (was `BAT_GET_CURRENT`).
+
+### Added
+
+- Motor firmware-programming commands 0x81-0x84: `MTR_PROGRAM_ENTER`,
+  `MTR_PROGRAM_INIT`, `MTR_PROGRAM_DATA` and `MTR_PROGRAM_END`.
+- GPS command 0x55 `GPS_GET_HW_VER`, decoded (0xab Celestron GPS, 0xeb
+  non-Celestron GPS).
+- Evolution WiFi command 0x10 `WIFI_SET_ENABLE` (on/off).
+- StarSense AutoGuider (0xb9) with its commands and decoders: plate solve and
+  calibration status with RA/Dec, calibration x/y, guiding on/off, mount info,
+  geolocation and time. Its guiding commands to the motors are shown with the
+  motor command names. Names and payload layouts come from community reverse
+  engineering and were checked against published examples.
+- Focuser controls in the Focuser panel: hold-to-move − and + buttons with
+  speeds 1-9, a Stop button, and Go to position (checked against the travel
+  limits when known). They work only while the panel is switched on. As with
+  the mount, a held move stops by itself if the page stops confirming it, and
+  the focuser is stopped when the panel is switched off, before listen-only
+  mode takes effect, and on disconnect.
+- Mount models Origin (0x1d8a) and Advanced GT (0x0682, from the
+  INDI celestronaux driver).
+- Mount families: a mount whose exact model id is unknown is recognised by the
+  first byte of the id and shown as, for example, "CGE Pro family (0x0d12)".
+  The families come from community reverse engineering, plus one for each
+  known exact model, and the tests check that every exact model agrees with
+  its family.
+- The mount-info command (0x30) of the StarSense AutoAlign V2 and AutoGuider
+  names the mount family of its model byte, e.g. "Model 0x11 (CPC Deluxe
+  family)".
+- Dew heater controller (0x17) commands, from community reverse engineering, decoded:
+  LED brightness (get 0x02, set 0x20), input current limit 0x03, enable
+  port 0x14, auto aggressiveness 0x16, manual power 0x17, recalibrate sensor
+  0x19 and calibrating status 0x1a; plus 0x21, still unknown.
+- StarSense AutoAlign V2 (0xbd, previously named "Starsense Camera V2") uses
+  the AutoGuider's command set except its guiding commands (0x2x): plate
+  solve, calibrate, 0x07, mount info, location, time and 0x45, named `SS2_*`
+  and decoded with the same decoders. Captures from real hardware confirmed
+  the location (degrees) and time formats.
+
+### Fixed
+
+- The web interface no longer prints a traceback when a browser goes away
+  mid-request (tab closed or reloaded, computer asleep). On Windows this showed
+  up as `ConnectionAbortedError: [WinError 10053]`. Real errors are still
+  reported.
+
 ## 1.0.0
 
 First release of the rewritten AUXBUS scanner, which replaces the original

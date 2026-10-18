@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import sys
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -54,6 +55,9 @@ POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
     "/api/clock/reset": WebApi.reset_clock,
     "/api/motion/move": WebApi.move,
     "/api/motion/stop": WebApi.stop_motion,
+    "/api/focuser/move": WebApi.focuser_move,
+    "/api/focuser/stop": WebApi.focuser_stop,
+    "/api/focuser/goto": WebApi.focuser_goto,
     "/api/discoveries/clear": WebApi.clear_discoveries,
     "/api/mark": WebApi.mark,
     "/api/catalog/name": WebApi.name,
@@ -72,6 +76,20 @@ def parse_listen_address(text: str) -> Tuple[str, int]:
     return host, int(port_text)
 
 
+class _HttpServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Stay quiet when a browser goes away mid-request; report anything else."""
+        error = sys.exc_info()[1]
+        if isinstance(error, ConnectionError):
+            # BrokenPipeError and ConnectionResetError on macOS and Linux,
+            # ConnectionAbortedError (WinError 10053) on Windows.
+            log.debug("browser %s disconnected: %s", client_address, error)
+            return
+        super().handle_error(request, client_address)
+
+
 def _load_page() -> bytes:
     return resources.files(__package__).joinpath("static/index.html").read_bytes()
 
@@ -85,8 +103,7 @@ class WebServer:
         self._page = _load_page()
         self._stopping = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self._httpd = ThreadingHTTPServer((host, port), _make_handler(self))
-        self._httpd.daemon_threads = True
+        self._httpd = _HttpServer((host, port), _make_handler(self))
 
     @property
     def address(self) -> Tuple[str, int]:
@@ -189,8 +206,8 @@ def _make_handler(server: WebServer) -> type:
                     if update is CLOSED:
                         break
                     self._write_event(update)
-            except (BrokenPipeError, ConnectionResetError):
-                pass  # the browser went away
+            except ConnectionError:
+                pass  # the browser went away (tab closed or reloaded, computer asleep)
             finally:
                 server.feed.unsubscribe(subscriber)
 

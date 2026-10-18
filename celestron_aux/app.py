@@ -141,6 +141,8 @@ class ScannerApp:
     def listen_only(self, enabled: bool) -> None:
         if enabled and self.motion.moving:
             self.motion.stop()  # last chance: once listen-only is on, not even a stop can be sent
+        if enabled and self.focuser.moving_by_hand:
+            self.focuser.stop()
         self.config.listen_only = enabled
         self.bus.listen_only = enabled
 

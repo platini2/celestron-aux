@@ -84,3 +84,77 @@ def test_replies_to_the_hand_controller_are_picked_up_while_off():
         assert mount.written == []
     finally:
         app.close()
+
+
+# --- focuser control ----------------------------------------------------------------
+
+def focus_moves(mount):
+    parser = FrameParser()
+    return [(p.frame.command, p.frame.data) for chunk in mount.written for p in parser.feed(chunk)
+            if p.frame.destination == 0x12 and p.frame.command in (0x02, 0x24, 0x25)]
+
+
+def test_focuser_moves_once_per_hold_and_stops():
+    app, mount = start(focuser_polling=True)
+    try:
+        app.focuser.move(1, 5)
+        app.focuser.move(1, 5)   # held: only the deadline is refreshed
+        app.focuser.move(-1, 3)  # other way: sent
+        assert focus_moves(mount) == [(0x24, b"\x05"), (0x25, b"\x03")]
+        assert app.focuser.snapshot()["direction"] == -1
+        app.focuser.stop()
+        assert focus_moves(mount)[-1] == (0x24, b"\x00") and not app.focuser.moving_by_hand
+    finally:
+        app.close()
+
+
+def test_focuser_dead_man_stops_an_unconfirmed_move():
+    app, mount = start(focuser_polling=True)
+    app.focuser.deadman = 0.3
+    try:
+        app.focuser.move(1, 9)
+        assert wait_until(lambda: (0x24, b"\x00") in focus_moves(mount), timeout=2)
+    finally:
+        app.close()
+
+
+def test_focuser_stops_when_switched_off_on_listen_only_and_on_close():
+    for finish in ("switch off", "listen only", "close"):
+        app, mount = start(focuser_polling=True)
+        try:
+            app.focuser.move(1, 4)
+            if finish == "switch off":
+                app.focuser.enabled = False
+            elif finish == "listen only":
+                app.listen_only = True
+            else:
+                app.close()
+            assert focus_moves(mount)[-1] == (0x24, b"\x00"), finish
+        finally:
+            app.close()
+
+
+def test_focuser_control_is_refused_while_off():
+    from celestron_aux.motion import MotionRefused
+
+    app, mount = start()
+    try:
+        with pytest.raises(MotionRefused):
+            app.focuser.move(1, 5)
+        with pytest.raises(MotionRefused):
+            app.focuser.goto(30000)
+        assert focus_moves(mount) == []
+    finally:
+        app.close()
+
+
+def test_focuser_goto_respects_the_travel_limits():
+    app, mount = start(focuser_polling=True)
+    try:
+        assert wait_until(lambda: app.focuser.snapshot()["limits"] == [1000, 60000])
+        with pytest.raises(ValueError, match="1000 to 60000"):
+            app.focuser.goto(70000)
+        app.focuser.goto(30000)
+        assert focus_moves(mount) == [(0x02, (30000).to_bytes(3, "big"))]
+    finally:
+        app.close()

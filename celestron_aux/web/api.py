@@ -231,6 +231,35 @@ class WebApi:
             raise ApiError(503, "The stop could not be sent; the connection may be closed.")
         return {"message": f"Stopped the {axis.label.lower()}." if axis else "Stopped both axes."}
 
+    def focuser_move(self, body: Mapping[str, Any]) -> Json:
+        """Start or continue a held focuser move; the page repeats this while held."""
+        app = self._transmitting_app()
+        direction = _int(body, "direction", -1, 1)
+        rate = _int(body, "rate", 1, 9)
+        if direction == 0:
+            raise ApiError(400, "'direction' must be 1 or -1.")
+        try:
+            app.focuser.move(direction, rate)
+        except MotionRefused as exc:
+            raise ApiError(503, str(exc)) from exc
+        return {"moving": True}
+
+    def focuser_stop(self, body: Mapping[str, Any]) -> Json:
+        if not self._transmitting_app().focuser.stop():
+            raise ApiError(503, "The stop could not be sent; the connection may be closed.")
+        return {"message": "Stopped the focuser."}
+
+    def focuser_goto(self, body: Mapping[str, Any]) -> Json:
+        app = self._transmitting_app()
+        position = _int(body, "position", 0, 0xFFFFFF)
+        try:
+            app.focuser.goto(position)
+        except MotionRefused as exc:
+            raise ApiError(503, str(exc)) from exc
+        except ValueError as exc:
+            raise ApiError(400, f"{str(exc).capitalize()}.") from exc
+        return {"message": f"Moving the focuser to {position}."}
+
     def mark(self, body: Mapping[str, Any]) -> Json:
         app = self._app()
         try:

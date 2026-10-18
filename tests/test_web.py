@@ -1,5 +1,7 @@
 import json
 import socket
+import time
+from http.server import BaseHTTPRequestHandler as BaseHandlerForTests
 import urllib.error
 import urllib.request
 
@@ -213,6 +215,42 @@ def test_state_reports_version_and_copyright(web):
     assert "Patricio Latini" in __copyright__ and "2021" in __copyright__
 
 
+@pytest.mark.parametrize("error", [ConnectionAbortedError, ConnectionResetError, BrokenPipeError])
+def test_a_browser_going_away_is_not_reported(error, capsys):
+    from celestron_aux.web.server import _HttpServer
+
+    server = _HttpServer(("127.0.0.1", 0), BaseHandlerForTests)
+    try:
+        try:
+            raise error("the browser went away")  # what Windows raises as WinError 10053
+        except ConnectionError:
+            server.handle_error(None, ("127.0.0.1", 50000))
+        try:
+            raise ValueError("a real bug")
+        except ValueError:
+            server.handle_error(None, ("127.0.0.1", 50000))
+    finally:
+        server.server_close()
+    printed = capsys.readouterr().err
+    assert "the browser went away" not in printed
+    assert "a real bug" in printed  # genuine errors are still shown
+
+
+def test_closing_the_live_stream_mid_traffic_is_quiet(web, capfd):
+    session, base, _ = web
+    mount = FakeMount({})
+    session.connect_transport(mount, mode="wifi", scan=False)
+    stream = urllib.request.urlopen(base + "/api/events", timeout=5)
+    stream.readline()
+    stream.close()  # like closing the tab
+    from celestron_aux.protocol import AuxPacket
+    for _ in range(50):
+        mount.inject(AuxPacket(0x10, 0x0D, 0xFE, b"\x07\x0b").encode())
+    time.sleep(0.5)
+    assert state(base)["connected"] is True  # the server carries on
+    assert "Traceback" not in capfd.readouterr().err
+
+
 def test_page_is_served(web):
     _, base, _ = web
     status, body = get(base, "/")
@@ -342,6 +380,25 @@ def test_gps_and_focuser_panels_follow_detection_and_their_switches(web):
     assert post(base, "/api/settings", {"focuser_polling": True})[0] == 200
     assert wait_until(lambda: state(base)["focuser"]["position"] == 777)
     assert state(base)["settings"]["focuser_polling"] is True
+
+
+def test_focuser_control_endpoints(web):
+    session, base, _ = web
+    mount = FakeMount({0x12: b"\x07\x03"}, replies={(0x12, 0x2C): (1000).to_bytes(4, "big") + (60000).to_bytes(4, "big")})
+    session.connect_transport(mount, mode="wifi", scan=False)
+    session.app.bus._inter_frame_delay = 0
+    status, reply = post(base, "/api/focuser/move", {"direction": 1, "rate": 5})
+    assert status == 503 and "Focuser control is off" in reply["error"]
+    post(base, "/api/settings", {"focuser_polling": True})
+    assert wait_until(lambda: state(base)["focuser"]["limits"] == [1000, 60000])
+    assert post(base, "/api/focuser/move", {"direction": -1, "rate": 5})[0] == 200
+    assert state(base)["focuser"]["direction"] == -1
+    assert post(base, "/api/focuser/stop")[0] == 200 and state(base)["focuser"]["direction"] == 0
+    assert post(base, "/api/focuser/move", {"direction": 0, "rate": 5})[0] == 400
+    assert post(base, "/api/focuser/goto", {"position": 70000})[0] == 400
+    assert post(base, "/api/focuser/goto", {"position": 30000})[0] == 200
+    post(base, "/api/settings", {"listen_only": True})
+    assert post(base, "/api/focuser/move", {"direction": 1, "rate": 5})[0] == 409
 
 
 def test_feed_items_carry_decoded_value_and_payload_hex(web):

@@ -265,6 +265,13 @@
   .readouts dt { color: var(--muted); font-size: 0.86rem; }
   .readouts dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
+  .focus-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 12px 0 10px; }
+  .focus-row button { min-height: 48px; font-size: 1.2rem; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .focus-row button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  :root[data-theme="night"] .focus-row button.active { background: #3d0905; color: var(--ink); }
+  .focus-row .pad-stop { grid-area: auto; font-size: 0.95rem; }
+  .goto-row { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+  .goto-row .field { flex: 1; }
   .mark-row { display: flex; gap: 8px; margin-bottom: 10px; }
   .mark-row input { flex: 1; }
   tr.mark td { font-weight: 600; color: var(--ink); }
@@ -424,7 +431,19 @@
         <div><dt>Motion</dt><dd id="focuser-moving">Unknown</dd></div>
         <div><dt>Travel limits</dt><dd id="focuser-limits">Unknown</dd></div>
       </dl>
-      <p class="hint"><span id="focuser-age"></span> When on, the focuser is asked for its position every second.</p>
+      <div id="focuser-controls">
+        <div class="focus-row" role="group" aria-label="Move the focuser. Hold a button to move.">
+          <button type="button" data-axis="focus" data-dir="-1" data-transmits aria-label="Focus minus">−</button>
+          <button id="focus-stop" class="pad-stop" type="button" data-transmits>Stop</button>
+          <button type="button" data-axis="focus" data-dir="1" data-transmits aria-label="Focus plus">+</button>
+        </div>
+        <label class="rate-row">Speed<input id="focus-rate" type="range" min="1" max="9" value="5"><output id="focus-rate-value" for="focus-rate">5</output></label>
+        <div class="goto-row">
+          <label class="field">Go to position<input id="focus-target" type="number" min="0" step="1" placeholder="e.g. 30000"></label>
+          <button id="focus-goto" type="button" data-transmits>Go</button>
+        </div>
+      </div>
+      <p class="hint"><span id="focuser-age"></span> When on, the focuser is asked for its position every second. Hold − or + to move; it stops when you let go, and by itself if this page loses contact.</p>
     </section>
 
     <section id="starsense-panel" class="panel" aria-labelledby="ss-title" hidden>
@@ -663,7 +682,7 @@ function render(s) {
   renderMotion(s.motion, canTransmit);
   renderGps(s.gps_status);
   $("#starsense-panel").hidden = !s.devices.some((device) => device.address === 0xb4);
-  renderFocuser(s.focuser);
+  renderFocuser(s.focuser, canTransmit);
   renderDevices(s.devices);
   if (s.stars && s.stars.seq !== shownStarsSeq) drawStars(s.stars);
 }
@@ -812,7 +831,7 @@ function renderMotion(motion, canTransmit) {
   $("#motion-body").classList.toggle("inactive", !on);
   for (const button of document.querySelectorAll(".pad button")) button.disabled = !canTransmit || !on;
   $("#rate").disabled = !on;
-  if (!on && held) releaseMove();
+  if (!on && held && held.axis !== "focus") releaseMove();
   for (const axis of Object.keys(AXES)) {
     const state = motion ? motion.axes[axis] : null;
     $(`#pos-${axis}`).textContent = state && state.dms ? state.dms : "Unknown";
@@ -839,10 +858,17 @@ function renderGps(gps) {
   $("#gps-age").textContent = updatedText(gps.age);
 }
 
-function renderFocuser(focuser) {
+function renderFocuser(focuser, canTransmit) {
   $("#focuser-panel").hidden = !(focuser && focuser.detected);
   if (!focuser) return;
-  $("#focuser-body").classList.toggle("inactive", !focuser.enabled);
+  const on = Boolean(focuser.enabled);
+  $("#focuser-body").classList.toggle("inactive", !on);
+  $("#focuser-controls").classList.toggle("inactive", !on);
+  for (const control of document.querySelectorAll("#focuser-controls button, #focuser-controls input")) {
+    control.disabled = !canTransmit || !on;
+  }
+  if (focuser.limits) { $("#focus-target").min = focuser.limits[0]; $("#focus-target").max = focuser.limits[1]; }
+  if (!on && held && held.axis === "focus") releaseMove();
   $("#focuser-position").textContent = focuser.position === null ? "Unknown" : focuser.position;
   $("#focuser-moving").textContent = yesNo(focuser.moving, "Moving", "Stopped");
   $("#focuser-limits").textContent = focuser.limits ? `${focuser.limits[0]} to ${focuser.limits[1]}` : "Unknown";
@@ -860,7 +886,11 @@ function showPosition(item) {  // live positions straight from the traffic strea
 async function sendMove() {
   if (!held) return;
   try {
-    await post("/api/motion/move", { axis: held.axis, direction: held.direction, rate: Number($("#rate").value) });
+    if (held.axis === "focus") {
+      await post("/api/focuser/move", { direction: held.direction, rate: Number($("#focus-rate").value) });
+    } else {
+      await post("/api/motion/move", { axis: held.axis, direction: held.direction, rate: Number($("#rate").value) });
+    }
   } catch (error) {
     say(error.message, true);
     releaseMove();
@@ -882,7 +912,8 @@ function releaseMove() {
   held = null;
   clearInterval(timer);
   button.classList.remove("active");
-  post("/api/motion/stop", { axis }).catch((error) => say(error.message, true));
+  const stop = axis === "focus" ? post("/api/focuser/stop", {}) : post("/api/motion/stop", { axis });
+  stop.catch((error) => say(error.message, true));
 }
 
 // --- marks ----------------------------------------------------------------------
@@ -1395,7 +1426,7 @@ $("#pause").addEventListener("click", (e) => {
   if (!paused) { pending.splice(0).forEach(addRow); }
   e.currentTarget.textContent = paused ? "Resume" : "Pause";
 });
-for (const button of document.querySelectorAll(".pad [data-axis]")) {
+for (const button of document.querySelectorAll(".pad [data-axis], .focus-row [data-axis]")) {
   button.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     try { button.setPointerCapture(e.pointerId); } catch { /* still works without capture */ }
@@ -1430,6 +1461,17 @@ document.addEventListener("keydown", (e) => {  // M jumps to the mark box from a
   }
 });
 $("#rate").addEventListener("input", (e) => { $("#rate-value").textContent = e.currentTarget.value; });
+$("#focus-rate").addEventListener("input", (e) => { $("#focus-rate-value").textContent = e.currentTarget.value; });
+$("#focus-stop").addEventListener("click", (e) => {
+  if (held && held.axis === "focus") { clearInterval(held.timer); held.button.classList.remove("active"); held = null; }
+  act("/api/focuser/stop", {}, e.currentTarget);
+});
+$("#focus-goto").addEventListener("click", (e) => {
+  const value = $("#focus-target").value.trim();
+  if (!/^\d+$/.test(value)) { say("Enter the position as a whole number, for example 30000.", true); return; }
+  act("/api/focuser/goto", { position: Number(value) }, e.currentTarget);
+});
+$("#focus-target").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#focus-goto").click(); });
 window.addEventListener("blur", releaseMove);
 document.addEventListener("visibilitychange", () => { if (document.hidden) releaseMove(); });
 $("#theme").addEventListener("click", () => applyTheme($("#theme").getAttribute("aria-pressed") !== "true"));

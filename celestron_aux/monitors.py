@@ -1,8 +1,12 @@
-"""Status panels for the GPS and the focuser.
+"""Status panels for the GPS and the focuser, and manual focuser control.
 
 Each monitor learns from every reply its device sends, so values the hand
 controller asks for show up too, and can also poll the device periodically.
 Polling is off until enabled and never happens in listen-only mode.
+
+The focuser can also be moved, with the same safety as the mount: a move lasts
+only while it is confirmed again within a dead-man deadline, and switching the
+panel off stops it.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .bus import AuxBus, BusEvent
 from .catalog import Addr, Cmd
+from .motion import MotionRefused
 from .protocol import AuxPacket
 from .protocol.units import bam_to_degrees, format_dms
 
@@ -56,6 +61,12 @@ class DeviceMonitor:
     def on_enable(self) -> None:
         """Called (under the lock) when polling is switched on."""
 
+    def on_disable(self) -> None:
+        """Called (without the lock, so it may send) when polling is switched off."""
+
+    def on_tick(self, now: float) -> None:
+        """Called (without the lock) about ten times a second."""
+
     # --- shared behaviour -------------------------------------------------------
 
     @property
@@ -65,6 +76,8 @@ class DeviceMonitor:
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
+        if not value:
+            self.on_disable()
         with self._lock:
             if value and not self._enabled:
                 self._next_poll = 0.0  # poll straight away
@@ -100,6 +113,7 @@ class DeviceMonitor:
     def _run(self) -> None:
         while not self._stop.wait(_TICK):
             now = self._clock()
+            self.on_tick(now)
             with self._lock:
                 due = self._enabled and now >= self._next_poll
                 if due:
@@ -176,14 +190,21 @@ class GpsMonitor(DeviceMonitor):
 
 
 class FocuserMonitor(DeviceMonitor):
-    """Position, whether a move is in progress, and the calibrated travel limits."""
+    """Position, whether a move is in progress, the travel limits, and manual moves."""
 
     address = Addr.FOCUSER
     interval = 1.0
 
     FOCUS_GET_POSITION = 0x01
+    FOCUS_GOTO = 0x02
     FOCUS_SLEW_DONE = 0x13
+    FOCUS_MOVE_POS = 0x24  # one byte: rate 1-9, 0 stops
+    FOCUS_MOVE_NEG = 0x25
     FOCUS_GET_LIMITS = 0x2C
+
+    MIN_RATE, MAX_RATE = 1, 9
+    MAX_POSITION = 0xFFFFFF  # positions are 24-bit
+    DEADMAN = 1.0  # seconds a held move survives without being confirmed again
 
     def __init__(self, bus: AuxBus, **kwargs: Any) -> None:
         super().__init__(bus, **kwargs)
@@ -191,6 +212,75 @@ class FocuserMonitor(DeviceMonitor):
         self._moving: Optional[bool] = None
         self._limits: Optional[Tuple[int, int]] = None
         self._ask_limits = True
+        self.deadman = self.DEADMAN
+        self._direction = 0  # +1 / -1 while a held move is running
+        self._rate = 0
+        self._deadline = 0.0
+
+    # --- manual control ---------------------------------------------------------
+
+    def move(self, direction: int, rate: int) -> None:
+        """Start or keep moving. Must be repeated within ``deadman`` seconds."""
+        if direction not in (1, -1):
+            raise ValueError("direction must be 1 or -1")
+        if not self.MIN_RATE <= rate <= self.MAX_RATE:
+            raise ValueError(f"rate must be between {self.MIN_RATE} and {self.MAX_RATE}")
+        with self._lock:
+            if not self._enabled:
+                raise MotionRefused("Focuser control is off. Switch it on to move the focuser.")
+            self._deadline = self._clock() + self.deadman
+            if (self._direction, self._rate) == (direction, rate):
+                return  # already moving like this: only the deadline needed refreshing
+            previous = (self._direction, self._rate)
+            self._direction, self._rate = direction, rate
+        command = self.FOCUS_MOVE_POS if direction > 0 else self.FOCUS_MOVE_NEG
+        if not self._bus.send(AuxPacket(Addr.SCANNER, self.address, command, bytes((rate,)))):
+            with self._lock:
+                self._direction, self._rate = previous
+            raise MotionRefused("The focuser move could not be sent.")
+
+    def stop(self) -> bool:
+        """Stop the focuser. Always sends, even if it seems idle."""
+        with self._lock:
+            self._direction = self._rate = 0
+        return self._bus.send(AuxPacket(Addr.SCANNER, self.address, self.FOCUS_MOVE_POS, b"\x00"))
+
+    def goto(self, position: int) -> None:
+        """Move to an absolute position, inside the travel limits when they are known."""
+        if not 0 <= position <= self.MAX_POSITION:
+            raise ValueError(f"position must be between 0 and {self.MAX_POSITION}")
+        with self._lock:
+            if not self._enabled:
+                raise MotionRefused("Focuser control is off. Switch it on to move the focuser.")
+            limits = self._limits
+            self._next_poll = 0.0  # report the new position promptly
+        if limits and not limits[0] <= position <= limits[1]:
+            raise ValueError(f"position must be within the travel limits, {limits[0]} to {limits[1]}")
+        if not self._bus.send(AuxPacket(Addr.SCANNER, self.address, self.FOCUS_GOTO, position.to_bytes(3, "big"))):
+            raise MotionRefused("The focuser move could not be sent.")
+
+    @property
+    def moving_by_hand(self) -> bool:
+        with self._lock:
+            return self._direction != 0
+
+    def on_tick(self, now: float) -> None:
+        with self._lock:
+            expired = self._direction != 0 and now > self._deadline
+        if expired:
+            log.warning("focuser move was not confirmed in time; stopping it")
+            self.stop()
+
+    def on_disable(self) -> None:
+        if self.moving_by_hand:
+            self.stop()
+
+    def close(self) -> None:
+        super().close()
+        if self.moving_by_hand:
+            self.stop()
+
+    # --- readings ---------------------------------------------------------------
 
     def on_enable(self) -> None:
         self._ask_limits = True  # the limits rarely change: read them once per enable
@@ -219,6 +309,7 @@ class FocuserMonitor(DeviceMonitor):
             "position": self._position,
             "moving": self._moving,
             "limits": None if self._limits is None else list(self._limits),
+            "direction": self._direction,
         }
 
 

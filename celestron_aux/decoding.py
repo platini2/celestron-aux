@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
+import math
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, Iterable, Mapping, Optional, Tuple
 
 from . import catalog
@@ -204,6 +206,13 @@ def _gps_time(data: bytes, is_reply: bool) -> str:
     return f"{data[0]:02d}:{data[1]:02d}:{data[2]:02d}"
 
 
+@_decodes([Addr.GPS], [0x55])
+def _gps_hardware_version(data: bytes, is_reply: bool) -> str:
+    # 0xab on Celestron GPS units (Paquette: the Motorola GPS module).
+    label = {0xAB: "Celestron GPS", 0xEB: "non-Celestron GPS"}.get(data[0])
+    return f"0x{data[0]:02x}" + (f" ({label})" if label else "")
+
+
 @_decodes([Addr.GPS], [Cmd.GPS_TIME_VALID, Cmd.GPS_LINKED])
 def _gps_flag(data: bytes, is_reply: bool) -> str:
     return _labelled(data[0], _YES_NO)
@@ -223,6 +232,74 @@ def _starsense_align_center(data: bytes, is_reply: bool) -> str:
 def _starsense_status(data: bytes, is_reply: bool) -> str:
     status = _labelled(data[0], {1: "Error", 3: "Ready", 9: "Finished"})
     return f"{status} - Stars: {data[1]}" if len(data) > 1 else status
+
+
+# --- StarSense AutoGuider and StarSense AutoAlign V2 ---------------------------
+# The V2 uses the AutoGuider's commands except guiding (0x2x), so the decoders
+# are shared. Payload layouts from community reverse engineering, checked against
+# published examples and against captures from a real StarSense AutoAlign V2: RA/Dec are two big-endian
+# float32 in radians, the location two big-endian float32 in degrees, and the
+# time is seconds since 2000-01-01 UTC.
+
+_SSAG = [Addr.STARSENSE_AUTOGUIDER]
+_SSAG_AND_V2 = [Addr.STARSENSE_AUTOGUIDER, Addr.STARSENSE_CAMERA_V2]
+_EPOCH_2000 = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+
+def _ra_dec(data: bytes) -> str:
+    _require(data, 8)
+    ra, dec = (math.degrees(value) for value in struct.unpack(">ff", data[:8]))
+    return f"RA {format_dms(ra % 360)}, Dec {format_dms(dec)}"
+
+
+@_decodes(_SSAG_AND_V2, [0x02])
+def _ssag_plate_status(data: bytes, is_reply: bool) -> str:
+    if data[0] == 0:
+        return "In progress"
+    return f"Solved, {_ra_dec(data[1:])}" if data[0] == 1 else f"Status {data[0]}, {_ra_dec(data[1:])}"
+
+
+@_decodes(_SSAG_AND_V2, [0x03])
+def _ssag_start_calibrate(data: bytes, is_reply: bool) -> str:
+    return _ra_dec(data)
+
+
+@_decodes(_SSAG_AND_V2, [0x04])
+def _ssag_calibrate_status(data: bytes, is_reply: bool) -> str:
+    if data[0] == 0:
+        return "In progress"
+    _require(data, 5)
+    state = "Solved" if data[0] == 1 else f"Status {data[0]}"
+    return f"{state}, x {_uint(data, 1, 3)}, y {_uint(data, 3, 5)}"
+
+
+@_decodes(_SSAG, [0x20])
+def _ssag_set_guiding(data: bytes, is_reply: bool) -> str:
+    return "Disabled" if data[0] == 0 else f"Enabled, flags 0x{data[0]:02x}"
+
+
+@_decodes(_SSAG_AND_V2, [0x30])
+def _ssag_mount_info(data: bytes, is_reply: bool) -> str:
+    # The model byte is the first byte of the MTR_GET_MODEL id, so it names a mount family.
+    _require(data, 4)
+    family = catalog.MOUNT_FAMILIES.get(data[0])
+    model = f"Model 0x{data[0]:02x}" + (f" ({family} family)" if family else "")
+    mounting = {0: "equatorial", 1: "alt-az"}.get(data[1], f"mounting {data[1]}")
+    return f"{model}, {mounting}, AZM firmware {data[2]}.{data[3]}"
+
+
+@_decodes(_SSAG_AND_V2, [0x31])
+def _ssag_geolocation(data: bytes, is_reply: bool) -> str:
+    _require(data, 8)
+    latitude, longitude = struct.unpack(">ff", data[:8])
+    return f"Lat {latitude:.4f}, Lon {longitude:.4f}"
+
+
+@_decodes(_SSAG_AND_V2, [0x32])
+def _ssag_time(data: bytes, is_reply: bool) -> str:
+    _require(data, 4)
+    when = _EPOCH_2000 + timedelta(seconds=_uint(data, 0, 4))
+    return when.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 # --- dew heater controller --------------------------------------------------
@@ -265,6 +342,48 @@ def _dew_status(data: bytes, is_reply: bool) -> str:
     return text
 
 
+# The commands below come from community reverse engineering of how CPWI talks to
+# the dew heater controller. Heater channels count from 0 on the bus.
+
+@_decodes([Addr.DEW_HEATER], [0x02, 0x20])
+def _dew_led_brightness(data: bytes, is_reply: bool) -> str:
+    return f"Brightness {data[0]}"
+
+
+@_decodes([Addr.DEW_HEATER], [0x03])
+def _dew_set_input_limit(data: bytes, is_reply: bool) -> str:
+    _require(data, 2)
+    return f"{_uint(data, 0, 2) / 1000:g} A"
+
+
+@_decodes([Addr.DEW_HEATER], [0x14])
+def _dew_enable_port(data: bytes, is_reply: bool) -> str:
+    _require(data, 2)
+    return f"Port {data[0]} {_ON_OFF.get(data[1], str(data[1])).lower()}"
+
+
+@_decodes([Addr.DEW_HEATER], [0x16])
+def _dew_set_aggression(data: bytes, is_reply: bool) -> str:
+    _require(data, 2)
+    return f"Heater {data[0] + 1}, aggression {data[1]}"
+
+
+@_decodes([Addr.DEW_HEATER], [0x17])
+def _dew_set_manual_power(data: bytes, is_reply: bool) -> str:
+    _require(data, 2)
+    return f"Heater {data[0] + 1}, power {round(data[1] / 2.55)}%"
+
+
+@_decodes([Addr.DEW_HEATER], [0x19])
+def _dew_recalibrate(data: bytes, is_reply: bool) -> str:
+    return "Start" if data[0] else "Stop"
+
+
+@_decodes([Addr.DEW_HEATER], [0x1A])
+def _dew_is_calibrating(data: bytes, is_reply: bool) -> str:
+    return "Calibrating" if data[0] else "Not calibrating"
+
+
 @_decodes([Addr.DEW_HEATER], [0x18])
 def _dew_ambient(data: bytes, is_reply: bool) -> str:
     _require(data, 9)
@@ -294,6 +413,11 @@ def _battery_status(data: bytes, is_reply: bool) -> str:
     status = f"status {data[1]}" + (f" ({level})" if level else "")
     charging = "charging" if data[0] else "not charging"
     return f"{_uint(data, 2, 6) / 1_000_000:.3f} V, {status}, {charging}"
+
+
+@_decodes([Addr.EVOLUTION_WIFI], [0x10])
+def _wifi_enable(data: bytes, is_reply: bool) -> str:
+    return _ON_OFF.get(data[0], str(data[0]))
 
 
 @_decodes([Addr.BATTERY], [0x18])

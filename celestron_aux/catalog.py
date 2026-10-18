@@ -30,8 +30,11 @@ class Addr:
     SCANNER = 0x2F  # the address this tool uses on the bus
     GPS = 0xB0
     STARSENSE_CAMERA = 0xB4
+    EVOLUTION_WIFI = 0xB5
     BATTERY = 0xB6
     CHARGER = 0xB7
+    STARSENSE_AUTOGUIDER = 0xB9
+    STARSENSE_CAMERA_V2 = 0xBD
     LIGHTS = 0xBF
 
 
@@ -76,8 +79,9 @@ DEVICE_NAMES: Mapping[int, str] = {
     0xB6: "Battery Power Cont",
     0xB7: "Charge Port",
     0xB8: "Starsense Camera SW",
+    0xB9: "Starsense AutoGuider",
     0xBB: "Dew Heater Controller",
-    0xBD: "Starsense Camera V2",
+    0xBD: "Starsense AutoAlign V2",
     0xBF: "Mount Lights",
 }
 
@@ -85,12 +89,15 @@ DEVICE_NAMES: Mapping[int, str] = {
 # device, the command number belongs to the other device.
 CONTROLLERS = frozenset({0x04, 0x0D, 0x0E, 0x20, 0x21, 0x22, Addr.SCANNER})
 
+# Accessories that also send commands to the motors (the autoguider sends guiding
+# corrections). Their traffic with a motor uses the motor's command names.
+MOTOR_CLIENTS = frozenset({Addr.STARSENSE_AUTOGUIDER})
+MOTORS = frozenset({Addr.AZM_MOTOR, Addr.ALT_MOTOR})
+
 # Model identifiers returned by MTR_GET_MODEL on the azimuth/RA motor.
-# Families seen but not yet mapped to an exact id: 0x05xx CGE, 0x06xx Advanced GT,
-# 0x09xx CPC, 0x0Axx GT, 0x0Dxx CGE Pro, 0x0Exx CGEM DX, 0x0Fxx LCM,
-# 0x10xx SkyProdigy, 0x13xx StarSeeker, 0x15xx Cosmos, 0x19xx AstroFi, 0x1Axx SkyWatcher.
 MOUNT_MODELS: Mapping[int, str] = {
     0x0001: "Nexstar GPS",
+    0x0682: "Advanced GT",  # from the INDI celestronaux driver
     0x0783: "Nexstar SLT",
     0x0B83: "4/5SE",
     0x0C82: "6/8SE",
@@ -100,11 +107,65 @@ MOUNT_MODELS: Mapping[int, str] = {
     0x1687: "Nexstar Evolution",
     0x1788: "CGX",
     0x1888: "CGX-L",
+    0x1D8A: "Origin",
 }
+
+# Mount families, by the first byte of the model id, used when the exact id is
+# not in MOUNT_MODELS. Every exact model must belong to a family that agrees
+# with it; mount_table_problems() checks that.
+MOUNT_FAMILIES: Mapping[int, str] = {
+    # Known families:
+    0x05: "CGE",
+    0x06: "Advanced GT / CG-5",
+    0x09: "CPC",
+    0x0A: "GT",
+    0x0D: "CGE Pro",
+    0x0E: "CGEM DX",
+    0x0F: "LCM",
+    0x10: "SkyProdigy",
+    0x13: "StarSeeker",
+    0x15: "Cosmos",
+    0x18: "CGX-L",
+    0x19: "AstroFi",
+    0x1A: "SkyWatcher",
+    # Inferred from the exact ids in MOUNT_MODELS:
+    0x07: "Nexstar SLT",
+    0x0B: "4/5SE",
+    0x0C: "6/8SE",
+    0x11: "CPC Deluxe",
+    0x12: "GT Series",
+    0x14: "AVX",
+    0x16: "Nexstar Evolution",
+    0x17: "CGX",
+    0x1D: "Origin",
+}
+
+# Replies of a single byte (the original Nexstar GPS answers 01) have no family byte.
+_SINGLE_BYTE_MODELS = frozenset({0x0001})
+
+
+def mount_table_problems() -> List[str]:
+    """Exact models without a family, or whose family names a different mount."""
+    problems = []
+    for model, name in sorted(MOUNT_MODELS.items()):
+        if model in _SINGLE_BYTE_MODELS:
+            continue
+        family = MOUNT_FAMILIES.get(model >> 8)
+        if family is None:
+            problems.append(f"0x{model:04x} {name}: no family 0x{model >> 8:02x}")
+        elif not _same_mount(name, family):
+            problems.append(f"0x{model:04x} {name}: family 0x{model >> 8:02x} is {family}")
+    return problems
+
+
+def _same_mount(model: str, family: str) -> bool:
+    simplify = lambda text: text.lower().replace("-", " ")
+    model, family = simplify(model), simplify(family)
+    return model in family or family in model
 
 _MOTOR_COMMANDS: Dict[int, str] = {
     0x01: "MTR_GET_POSITION",  # 16/24-bit BAM position
-    0x02: "MTR_GOTO",  # coarse, 16/24-bit BAM position
+    0x02: "MTR_GOTO_FAST",  # goto at rate 9, 16/24-bit BAM position
     0x04: "MTR_SET_POSITION",  # resets to a new 16/24-bit BAM position
     0x05: "MTR_GET_MODEL",
     0x06: "MTR_PTRACK",  # 16/24-bit speed in arcsec/1024, positive
@@ -123,7 +184,7 @@ _MOTOR_COMMANDS: Dict[int, str] = {
     0x14: "MTR_PEC_STATE_CHANGE",
     0x15: "MTR_IS_PECTRAIN_OVER",
     0x16: "MTR_CANCEL_PECTRAIN",
-    0x17: "MTR_GOTO2",
+    0x17: "MTR_GOTO_SLOW",  # goto at a slow, variable rate, 16/24-bit BAM position
     0x18: "MTR_IS_INDEX_FOUND",
     0x19: "MTR_FIND_INDEX",
     0x1A: "MTR_SET_USER_LIMIT_MIN",
@@ -157,7 +218,7 @@ _MOTOR_COMMANDS: Dict[int, str] = {
     0x46: "MTR_SET_AUTOGUIDE_RATE",
     0x47: "MTR_GET_AUTOGUIDE_RATE",
     0x48: "MTR_SET_SWITCH_CALIBRATION",
-    0x49: "MTR_SET_SWITCH_CALIBRATION",  # listed twice in the source data; probably the GET
+    0x49: "MTR_GET_SWITCH_CALIBRATION",
     0x4A: "MTR_SET_PRN_VALUE",
     0x4B: "MTR_GET_PRN_VALUE",
     0x50: "MTR_SEND_WARNING",
@@ -166,6 +227,12 @@ _MOTOR_COMMANDS: Dict[int, str] = {
     0x5C: "MTR_SET_PID_KI",
     0x5D: "MTR_SET_PID_KD",
     0x5F: "MTR_ENABLE_PID_ANALYSIS",
+    # Firmware programming (Paquette). MTR_PROGRAM_ENTER puts the motor
+    # controller into flashing mode, where it stops working until it is reprogrammed.
+    0x81: "MTR_PROGRAM_ENTER",
+    0x82: "MTR_PROGRAM_INIT",
+    0x83: "MTR_PROGRAM_DATA",
+    0x84: "MTR_PROGRAM_END",
     0x8A: "MTR_PROGRAMMER_ENABLE",
     0xEE: "MTR_GET_HARDSWITCH_ENABLE",
     0xEF: "MTR_SET_HARDSWITCH_ENABLE",
@@ -198,11 +265,20 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
     },
     0x17: {
         0x00: "DEWHEATER_GET_CURRENT_POWER",
+        0x02: "DEWHEATER_GET_LED_BRIGHTNESS",
+        0x03: "DEWHEATER_SET_INPUT_LIMIT",
         0x04: "DEWHEATER_GET_LIMIT_POWER",
         0x10: "DEWHEATER_GET_POWER_PORTS",
         0x11: "DEWHEATER_GET_PORTS",
         0x12: "DEWHEATER_GET_STATUS",
+        0x14: "DEWHEATER_ENABLE_PORT",
+        0x16: "DEWHEATER_SET_AUTO_AGGRESSION",
+        0x17: "DEWHEATER_SET_MANUAL_POWER",
         0x18: "DEWHEATER_GET_AMBIENT",
+        0x19: "DEWHEATER_RECALIBRATE_SENSOR",
+        0x1A: "DEWHEATER_IS_CALIBRATING",
+        0x20: "DEWHEATER_SET_LED_BRIGHTNESS",
+        0x21: "DEWHEATER_UNKNOWN_21",  # CPWI sends it at startup; a Celestron 2X replies ff
     },
     0x20: {0xFE: "NXS_GET_FW_VER"},
     0xB0: {
@@ -215,6 +291,7 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
         0x33: "GPS_GET_TIME",
         0x36: "GPS_TIME_VALID",
         0x37: "GPS_LINKED",
+        0x55: "GPS_GET_HW_VER",
         0xA0: "GPS_GET_COMPASS",
         0xFE: "GPS_GET_FW_VER",
     },
@@ -229,11 +306,40 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
         0x9F: "SS_GET_IMAGE3",
         0xFE: "SS_GET_FW_VER",
     },
-    0xB5: {0xFE: "WIFI_GET_FW_VER"},
-    0xB6: {0x10: "BAT_GET_VOLTAGE", 0x18: "BAT_GET_CURRENT", 0xFE: "BAT_GET_FW_VER"},
+    0xB5: {0x10: "WIFI_SET_ENABLE", 0xFE: "WIFI_GET_FW_VER"},  # 0x10: Evolution WiFi on/off
+    0xB6: {0x10: "BAT_GET_VOLTAGE", 0x18: "BAT_GET_MAX_CURRENT", 0xFE: "BAT_GET_FW_VER"},
     0xB7: {0x10: "CHG_MODE", 0xFE: "CHG_GET_FW_VER"},  # 0x10 both reads and sets
+    # StarSense AutoGuider: names and payload layouts from community reverse engineering.
+    0xB9: {
+        0x01: "SSAG_START_PLATE_SOLVE",
+        0x02: "SSAG_GET_PLATE_STATUS",
+        0x03: "SSAG_START_CALIBRATE",
+        0x04: "SSAG_GET_CALIBRATE_STATUS",
+        0x07: "SSAG_UNKNOWN_07",
+        0x20: "SSAG_SET_GUIDING",
+        0x23: "SSAG_GET_GUIDING_DATA",
+        0x30: "SSAG_SET_MOUNT_INFO",
+        0x31: "SSAG_SET_GEOLOCATION",
+        0x32: "SSAG_SET_TIME_NOW",
+        0x45: "SSAG_UNKNOWN_45",
+        0xFE: "SSAG_GET_FW_VER",
+    },
     0xBB: {0xFE: "DEWHEATER_GET_FW_VER"},
-    0xBD: {0xFE: "SS2_GET_FW_VER"},
+    # StarSense AutoAlign V2: the StarSense AutoGuider's command set without its
+    # guiding commands (0x2x). CPWI sends it mount info, location and time with
+    # the same payloads as the AutoGuider (seen on real hardware).
+    0xBD: {
+        0x01: "SS2_START_PLATE_SOLVE",
+        0x02: "SS2_GET_PLATE_STATUS",
+        0x03: "SS2_START_CALIBRATE",
+        0x04: "SS2_GET_CALIBRATE_STATUS",
+        0x07: "SS2_UNKNOWN_07",
+        0x30: "SS2_SET_MOUNT_INFO",
+        0x31: "SS2_SET_GEOLOCATION",
+        0x32: "SS2_SET_TIME_NOW",
+        0x45: "SS2_UNKNOWN_45",
+        0xFE: "SS2_GET_FW_VER",
+    },
     0xBF: {0x10: "LIGHT_LEVEL", 0xFE: "LIGHT_GET_FW_VER"},  # 0x10 both reads and sets
 }
 
@@ -413,9 +519,15 @@ def commands_for(device: int) -> List[Tuple[int, str]]:
 
 
 def mount_name(model: Optional[int]) -> str:
+    """The exact model if known, else its family (marked as such), else Unknown."""
     if model is None:
         return "Not detected"
-    return MOUNT_MODELS.get(model, f"{UNKNOWN} (0x{model:04x})")
+    if model in MOUNT_MODELS:
+        return MOUNT_MODELS[model]
+    family = MOUNT_FAMILIES.get(model >> 8) if model > 0xFF else None
+    if family:
+        return f"{family} family (0x{model:04x})"
+    return f"{UNKNOWN} (0x{model:04x})"
 
 
 def subject_device(source: int, destination: int) -> int:
@@ -424,4 +536,6 @@ def subject_device(source: int, destination: int) -> int:
         return destination
     if destination == Addr.SCANNER:
         return source
+    if source in MOTOR_CLIENTS and destination in MOTORS:
+        return destination
     return destination if source in CONTROLLERS else source
