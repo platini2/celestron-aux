@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence
 
-from . import __version__, catalog
+from . import __copyright__, __version__, catalog
 from .app import AppConfig, ScannerApp
 from .catalog import Addr
 from .keepalive import DEFAULT_INTERVAL
@@ -53,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="where StarSense images are saved (default: current directory)")
     parser.add_argument("--no-starsense-images", action="store_true",
                         help="do not save StarSense star lists as images")
+    parser.add_argument("--catalog", type=Path, default=None, metavar="PATH",
+                        help="your own device and command names (default: ~/.celestron-aux/catalog.json)")
     parser.add_argument("--web", nargs="?", const="127.0.0.1:8080", metavar="[HOST:]PORT",
                         help="run the browser interface instead of the console one; the console stays "
                              "silent. Without a mode and target you choose the connection in the browser "
@@ -60,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-level", default=None,
                         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
                         help="diagnostic log level (default: INFO, or WARNING with --web)")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}. {__copyright__}.")
     return parser
 
 
@@ -106,6 +109,9 @@ class Repl:
             _Command("i", "identify the mount", self._identify_mount),
             _Command("l", "toggle listen-only mode (never transmit)", self._toggle_listen_only),
             _Command("u", "show unknown traffic", self._show_unknown),
+            _Command("m", "mark what just happened (a note in every log)", self._mark),
+            _Command("p", "show the mount axis positions", self._show_positions),
+            _Command("x", "stop both motors", self._stop_motors),
             _Command("k", "toggle keep-alive", self._toggle_keepalive),
             _Command("g", "toggle GPS emulation", self._toggle_gps),
             _Command("v", "toggle verbose output", self._toggle_verbose),
@@ -210,6 +216,31 @@ class Repl:
                 f"  x{d.count}  with {peers}"
                 + (f"  sent: {' '.join(d.requests)}" if d.requests else "")
                 + (f"  replied: {' '.join(d.replies)}" if d.replies else ""))
+        return False
+
+    def _mark(self) -> bool:
+        text = self._read("Mark (what just happened?): ")
+        try:
+            self.app.mark(text)
+        except ValueError:
+            self._write("Nothing marked: the mark was empty.")
+        return False
+
+    def _show_positions(self) -> bool:
+        if not self.app.listen_only:
+            self.app.motion.request_positions()
+            time.sleep(0.5)  # give the motors time to answer
+        axes = self.app.motion.snapshot()["axes"]
+        for axis in axes.values():
+            age = "" if axis["age"] is None else f"  ({axis['age']} s ago)"
+            self._write(f"{axis['label']:<20} {axis['dms'] or 'unknown'}{age}")
+        return False
+
+    def _stop_motors(self) -> bool:
+        if self._blocked():
+            return False
+        self.app.motion.stop()
+        self._write("Stop sent to both motors.")
         return False
 
     def _toggle_keepalive(self) -> bool:
@@ -333,6 +364,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
     log_level = args.log_level or ("WARNING" if args.listen else "INFO")
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s", stream=sys.stderr)
+    user_catalog = catalog.UserCatalog(args.catalog or catalog.DEFAULT_USER_CATALOG)
+    user_catalog.load()
+    catalog.use_user_catalog(user_catalog)
     if args.listen:
         return _run_web(args)
     return _run_console(args)
@@ -379,6 +413,7 @@ def _run_web(args: argparse.Namespace) -> int:
 def _serve_web(web: "WebServer", session: "WebSession") -> None:
     host, port = web.address
     shown = "localhost" if host in ("127.0.0.1", "::1") else host
+    print(f"celestron-aux {__version__}\n{__copyright__}", flush=True)
     print(f"Web interface: http://{shown}:{port}/  (press Ctrl+C to stop)", flush=True)
     if session.app is None:
         print("Open it and choose how to connect to the mount.", flush=True)

@@ -52,7 +52,12 @@ POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
     "/api/starsense/capture": WebApi.starsense_capture,
     "/api/starsense/sample": WebApi.starsense_sample,
     "/api/clock/reset": WebApi.reset_clock,
+    "/api/motion/move": WebApi.move,
+    "/api/motion/stop": WebApi.stop_motion,
     "/api/discoveries/clear": WebApi.clear_discoveries,
+    "/api/mark": WebApi.mark,
+    "/api/catalog/name": WebApi.name,
+    "/api/catalog/remove": WebApi.unname,
 }
 
 
@@ -124,6 +129,8 @@ def _make_handler(server: WebServer) -> type:
                 self._ports()
             elif url.path == "/api/discoveries":
                 self._send_json(HTTPStatus.OK, server.api.discoveries())
+            elif url.path == "/api/catalog":
+                self._send_json(HTTPStatus.OK, server.api.catalog())
             elif url.path.startswith("/api/download/"):
                 self._download(url.path.rsplit("/", 1)[-1])
             elif url.path == "/api/commands":
