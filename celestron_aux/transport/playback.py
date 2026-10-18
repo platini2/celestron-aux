@@ -2,7 +2,8 @@
 
 Capture format: one chunk per line, either ``<seconds> <hex>`` or just ``<hex>``.
 Timestamped lines are replayed with their original spacing; lines without a
-timestamp are delivered immediately.
+timestamp are delivered immediately. ``#MARK <seconds> <text>`` lines are marks
+placed during recording; other lines starting with ``#`` are comments.
 """
 
 from __future__ import annotations
@@ -10,19 +11,29 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple, Union
 
 from .base import Transport, TransportClosed
 
 log = logging.getLogger(__name__)
 
-_Entry = Tuple[Optional[float], bytes]
+MARK_PREFIX = "#MARK"
+_Entry = Tuple[Optional[float], Union[bytes, str]]  # bytes are traffic, str is a mark
 
 
 def load_capture(path: Path) -> List[_Entry]:
     entries: List[_Entry] = []
     with path.open("r", encoding="ascii") as capture:
         for line_number, line in enumerate(capture, start=1):
+            if line.startswith(MARK_PREFIX):
+                parts = line[len(MARK_PREFIX):].split(maxsplit=1)
+                try:
+                    entries.append((float(parts[0]), parts[1].strip() if len(parts) > 1 else ""))
+                except (ValueError, IndexError) as exc:
+                    raise ValueError(f"{path}:{line_number}: expected '#MARK <seconds> <text>'") from exc
+                continue
+            if line.startswith("#"):
+                continue
             fields = line.split()
             try:
                 if len(fields) == 2:
@@ -52,6 +63,7 @@ class PlaybackTransport(Transport):
         self._started_at = 0.0
         self._first_timestamp: Optional[float] = None
         self._recorded: Optional[float] = None
+        self._marks: List[Tuple[float, str]] = []
 
     @property
     def description(self) -> str:
@@ -82,7 +94,15 @@ class PlaybackTransport(Transport):
             self._recorded = timestamp - self._first_timestamp
         else:
             self._recorded = None
+        if isinstance(data, str):  # a mark: handed over through take_marks
+            if data:
+                self._marks.append((self._recorded or 0.0, data))
+            return b""
         return data
+
+    def take_marks(self) -> List[Tuple[float, str]]:
+        marks, self._marks = self._marks, []
+        return marks
 
     def recorded_time(self) -> Optional[float]:
         return self._recorded

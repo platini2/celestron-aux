@@ -66,7 +66,9 @@ class SerialBusTransport(_SerialTransport):
     """Direct connection to the AUX bus through a serial adapter on an AUX port."""
 
     baudrate = 19200
-    echoes_tx = True  # the bus is shared, so our own frames come back
+    # Our own frames are reported by the bus layer, not taken from the receive
+    # line: relying on the echo jammed the bus in testing on real hardware.
+    echoes_tx = False
 
     @property
     def description(self) -> str:

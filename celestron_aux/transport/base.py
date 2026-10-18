@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Optional, Type
+from typing import List, Optional, Tuple, Type
 
 
 class TransportClosed(ConnectionError):
@@ -49,6 +49,10 @@ class Transport(ABC):
         """When the chunk just read was originally recorded, in seconds from the start
         of the recording, or None for live data (the session clock is used then)."""
         return None
+
+    def take_marks(self) -> List[Tuple[float, str]]:
+        """Marks recorded in a capture that have come due: (recorded time, text). Live: none."""
+        return []
 
     def __enter__(self) -> "Transport":
         self.open()

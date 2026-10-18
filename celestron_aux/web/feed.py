@@ -7,7 +7,7 @@ import threading
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 
-from ..bus import BusEvent
+from ..bus import BusEvent, Mark
 from ..decoding import describe_packet
 from ..discovery import is_unknown
 from ..protocol import AuxPacket, CorruptFrame, StarSenseFrame
@@ -35,7 +35,9 @@ def event_to_item(event: BusEvent, seq: int) -> Item:
             sender=d.sender, sender_id=d.sender_id,
             receiver=d.receiver, receiver_id=d.receiver_id,
             command=d.command, command_id=d.command_id,
-            value=d.value,
+            value=d.text,  # decoded, or the payload hex when nothing decodes it
+            payload=d.payload,
+            malformed=d.malformed,
             unknown=is_unknown(frame),
         )
     elif isinstance(frame, StarSenseFrame):
@@ -43,6 +45,8 @@ def event_to_item(event: BusEvent, seq: int) -> Item:
         item.update(kind="stars", stars=[[round(s.x, 2), round(s.y, 2)] for s in stars])
     elif isinstance(frame, CorruptFrame):
         item.update(kind="corrupt", reason=frame.reason)
+    elif isinstance(frame, Mark):
+        item.update(kind="mark", text=frame.text)
     return item
 
 

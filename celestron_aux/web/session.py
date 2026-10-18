@@ -136,6 +136,24 @@ class WebSession:
             if self._app is not None:
                 self._app.listen_only = enabled
 
+    def set_motion_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self.config.motion_enabled = enabled
+            if self._app is not None:
+                self._app.motion.enabled = enabled
+
+    def set_gps_polling(self, enabled: bool) -> None:
+        with self._lock:
+            self.config.gps_polling = enabled
+            if self._app is not None:
+                self._app.gps_monitor.enabled = enabled
+
+    def set_focuser_polling(self, enabled: bool) -> None:
+        with self._lock:
+            self.config.focuser_polling = enabled
+            if self._app is not None:
+                self._app.focuser.enabled = enabled
+
     def set_keepalive(self, enabled: bool) -> None:
         with self._lock:
             self.config.keepalive = enabled

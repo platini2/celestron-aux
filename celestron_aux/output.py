@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import IO, Any, List, Optional, Sequence, Tuple
 
 from . import catalog
-from .bus import BusEvent, Direction
+from .bus import BusEvent, Direction, Mark
 from .catalog import Addr
 from .decoding import describe_packet
 from .protocol import AuxPacket, CorruptFrame, StarSenseFrame
@@ -44,7 +44,7 @@ class ConsoleView:
             d = describe_packet(frame)
             return [
                 f"{stamp} - {_named(d.sender, d.sender_id)} -> {_named(d.receiver, d.receiver_id)}"
-                f" --- {_named(d.command, d.command_id)} --- {d.value}{dump}"
+                f" --- {_named(d.command, d.command_id)} --- {d.text}{dump}"
             ]
         if isinstance(frame, StarSenseFrame):
             stars = parse_star_list(frame.payload)
@@ -56,6 +56,8 @@ class ConsoleView:
             return lines
         if isinstance(frame, CorruptFrame):
             return [f"{stamp} - corrupt frame ({frame.reason}): {frame.raw.hex()}"]
+        if isinstance(frame, Mark):
+            return [f"{stamp} - MARK: {frame.text}"]
         return [f"{stamp} - unrecognised event {frame!r}"]
 
     # --- status output ----------------------------------------------------------
@@ -71,9 +73,9 @@ class ConsoleView:
     def message(self, text: str) -> None:
         self.lines([text])
 
-    def banner(self, title: str) -> None:
-        rule = "-" * max(23, len(title) + 2)
-        self.lines([rule, f" {title}", rule])
+    def banner(self, *titles: str) -> None:
+        rule = "-" * max(23, max(len(title) for title in titles) + 2)
+        self.lines([rule, *(f" {title}" for title in titles), rule])
 
     def traffic_header(self) -> None:
         self.message(
@@ -94,7 +96,7 @@ class ConsoleView:
 
 CSV_HEADER = (
     "timestamp", "sender", "sender_id", "receiver", "receiver_id",
-    "command", "command_id", "command_data", "raw_packet",
+    "command", "command_id", "command_data", "payload_hex", "raw_packet",
 )
 
 
@@ -139,13 +141,15 @@ class CsvLogger:
         if isinstance(frame, AuxPacket):
             d = describe_packet(frame)
             return (stamp, d.sender, f"0x{d.sender_id:02x}", d.receiver, f"0x{d.receiver_id:02x}",
-                    d.command, f"0x{d.command_id:02x}", d.value, event.raw.hex())
+                    d.command, f"0x{d.command_id:02x}", d.text, d.payload, event.raw.hex())
         if isinstance(frame, StarSenseFrame):
             stars = len(parse_star_list(frame.payload))
             return (stamp, catalog.device_name(Addr.STARSENSE_CAMERA), f"0x{Addr.STARSENSE_CAMERA:02x}",
-                    "All", "", "STARSENSE_STAR_LIST", "", f"{stars} stars", event.raw.hex())
+                    "All", "", "STARSENSE_STAR_LIST", "", f"{stars} stars", frame.payload.hex(), event.raw.hex())
+        if isinstance(frame, Mark):
+            return (stamp, "", "", "", "", "MARK", "", frame.text, "", "")
         reason = frame.reason if isinstance(frame, CorruptFrame) else ""
-        return (stamp, "", "", "", "", "CORRUPT_FRAME", "", reason, event.raw.hex())
+        return (stamp, "", "", "", "", "CORRUPT_FRAME", "", reason, "", event.raw.hex())
 
     def _close_locked(self) -> None:
         if self._file is not None:
@@ -177,10 +181,18 @@ class RawRecorder:
             self._close_locked()
 
     def __call__(self, direction: Direction, raw: bytes, timestamp: float) -> None:
+        self._write(f"{timestamp:.6f} {raw.hex()}\n")
+
+    def on_event(self, event: BusEvent) -> None:
+        """Bus listener: records marks, so a replay brings them back."""
+        if isinstance(event.frame, Mark):
+            self._write(f"#MARK {event.timestamp:.6f} {event.frame.text}\n")
+
+    def _write(self, line: str) -> None:
         with self._lock:
             if self._file is None:
                 return
-            self._file.write(f"{timestamp:.6f} {raw.hex()}\n")
+            self._file.write(line)
             self._file.flush()
 
     def _close_locked(self) -> None:
