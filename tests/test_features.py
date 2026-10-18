@@ -69,7 +69,8 @@ def test_csv_rows_for_each_frame_type(tmp_path):
     logger.stop()
     lines = path.read_text().splitlines()
     assert lines[0].startswith("timestamp,sender")
-    assert ",AZM MC,0x10,AUXBUS Scanner,0x2f,MTR_GET_VERSION,0xfe,7.11," in lines[1]
+    assert lines[0].split(",")[7:9] == ["command_data", "payload_hex"]
+    assert ",AZM MC,0x10,AUXBUS Scanner,0x2f,MTR_GET_VERSION,0xfe,7.11,070b," in lines[1]
     assert "99 stars" in lines[2]
 
 

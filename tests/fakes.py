@@ -5,7 +5,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from celestron_aux.protocol import AuxPacket, FrameParser
 from celestron_aux.transport import Transport
@@ -16,10 +16,14 @@ class FakeMount(Transport):
 
     echoes_tx = False
 
-    def __init__(self, versions: Dict[int, bytes], model: Optional[bytes] = None) -> None:
+    def __init__(self, versions: Dict[int, bytes], model: Optional[bytes] = None,
+                 positions: Optional[Dict[int, bytes]] = None,
+                 replies: Optional[Dict[Tuple[int, int], bytes]] = None) -> None:
         super().__init__(poll_interval=0.01)
         self.versions = versions
         self.model = model
+        self.positions = positions or {}
+        self.replies = replies or {}  # (device, command) -> reply payload
         self.written: List[bytes] = []
         self._incoming: "queue.Queue[bytes]" = queue.Queue()
         self._parser = FrameParser()
@@ -61,6 +65,10 @@ class FakeMount(Transport):
             return self.versions.get(request.destination)
         if request.command == 0x05 and request.destination == 0x10:
             return self.model
+        if (request.destination, request.command) in self.replies:
+            return self.replies[(request.destination, request.command)]
+        if request.command == 0x01:
+            return self.positions.get(request.destination)
         return None
 
 
@@ -76,11 +84,16 @@ def wait_until(condition: Callable[[], bool], timeout: float = 5.0, step: float 
 class FakeTcpMount:
     """A mount reachable over TCP, like a SkyPortal Wi-Fi module, for end-to-end tests."""
 
-    def __init__(self, versions: Dict[int, bytes], model: Optional[bytes] = None) -> None:
+    def __init__(self, versions: Dict[int, bytes], model: Optional[bytes] = None,
+                 replies: Optional[Dict[Tuple[int, int], bytes]] = None) -> None:
         import socketserver
 
         self.versions = versions
         self.model = model
+        self.replies = replies or {}  # (device, command) -> reply payload
+        self.received: List[AuxPacket] = []
+        self.degrees = {0x10: 0.0, 0x11: 0.0}  # axis angles, moved by slew commands
+        self._slewing = {0x10: 0.0, 0x11: 0.0}  # degrees per position request while slewing
         mount = self
 
         class Handler(socketserver.BaseRequestHandler):
@@ -96,6 +109,7 @@ class FakeTcpMount:
                     for parsed in parser.feed(data):
                         request = parsed.frame
                         if isinstance(request, AuxPacket):
+                            mount.received.append(request)
                             reply = mount.reply_data(request)
                             if reply is not None:
                                 packet = AuxPacket(request.destination, request.source, request.command, reply)
@@ -111,10 +125,19 @@ class FakeTcpMount:
         self._thread.start()
 
     def reply_data(self, request: AuxPacket) -> Optional[bytes]:
+        axis = request.destination
+        if (axis, request.command) in self.replies:
+            return self.replies[(axis, request.command)]
         if request.command == 0xFE:
-            return self.versions.get(request.destination)
-        if request.command == 0x05 and request.destination == 0x10:
+            return self.versions.get(axis)
+        if request.command == 0x05 and axis == 0x10:
             return self.model
+        if request.command in (0x24, 0x25) and axis in self.degrees and request.data:
+            self._slewing[axis] = (1 if request.command == 0x24 else -1) * request.data[0] * 0.5
+            return b"\x01"
+        if request.command == 0x01 and axis in self.degrees:
+            self.degrees[axis] += self._slewing[axis]
+            return (round(self.degrees[axis] / 360 * (1 << 24)) % (1 << 24)).to_bytes(3, "big")
         return None
 
     def close(self) -> None:

@@ -15,7 +15,9 @@ def test_known_traffic_is_not_unknown():
 def test_unknown_device_and_unknown_command_are_flagged():
     assert is_unknown(AuxPacket(0x0D, 0x99, 0x01))          # unknown device
     assert is_unknown(AuxPacket(0x0D, 0x10, 0x77))          # known device, unknown command
-    assert is_unknown(AuxPacket(0x2F, 0xB8, 0xFE))          # device without a command table
+    assert is_unknown(AuxPacket(0x2F, 0xB8, 0x10))          # device without a command table
+    assert not is_unknown(AuxPacket(0x2F, 0xB8, 0xFE))      # ...but every device answers GET_VERSION
+    assert is_unknown(AuxPacket(0x2F, 0x99, 0xFE))          # an unknown device is still flagged
 
 
 def test_tracker_groups_counts_and_keeps_distinct_samples():
