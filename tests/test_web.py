@@ -196,3 +196,96 @@ def test_page_is_served(web):
     _, base, _ = web
     status, body = get(base, "/")
     assert status == 200 and b"Connection" in body and b"/api/connect" in body
+
+
+# --- listen-only, downloads, replay, unknown traffic ------------------------------
+
+def test_listen_only_refuses_transmitting_actions(web, mount):
+    session, base, _ = web
+    assert post(base, "/api/settings", {"listen_only": True})[0] == 200
+    assert connect(base, mount)[0] == 200
+    assert state(base)["settings"]["listen_only"] is True
+    for path, body in (("/api/scan", {}), ("/api/identify", {}), ("/api/send", {"device": 16, "command": 254}),
+                       ("/api/starsense/capture", {}), ("/api/starsense/sample", {})):
+        status, reply = post(base, path, body)
+        assert status == 409 and "Listen-only" in reply["error"], path
+    assert session.app.devices() == []  # the scan on connect was skipped
+    assert post(base, "/api/settings", {"listen_only": False})[0] == 200
+    assert post(base, "/api/send", {"device": 16, "command": 254})[0] == 200
+
+
+def test_downloads(web, mount):
+    session, base, tmp_path = web
+    with pytest.raises(urllib.error.HTTPError) as missing:
+        get(base, "/api/download/csv")
+    assert missing.value.code == 404
+    post(base, "/api/settings", {"csv": True, "raw": True})
+    connect(base, mount, scan=False)
+    speed_up(session)
+    post(base, "/api/send", {"device": 16, "command": 254})
+    assert wait_until(lambda: "MTR_GET_VERSION" in (tmp_path / "log.csv").read_text())
+    with urllib.request.urlopen(base + "/api/download/csv", timeout=5) as response:
+        assert 'filename="log.csv"' in response.headers["Content-Disposition"]
+        assert b"MTR_GET_VERSION" in response.read()
+    assert get(base, "/api/download/raw")[1].strip()
+    assert get(base, "/api/download/unknown")[1].startswith(b"device_id,device,command_id")
+    with pytest.raises(urllib.error.HTTPError):
+        get(base, "/api/download/../../etc/passwd")
+
+
+def upload(base, path, data):
+    request = urllib.request.Request(base + path, data=data, method="POST",
+                                     headers={"Content-Type": "text/plain", "X-Requested-With": "celestron-aux"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read())
+
+
+def test_replay_an_uploaded_capture(web):
+    from celestron_aux.protocol import AuxPacket
+
+    session, base, _ = web
+    lines = [
+        f"0.0 {AuxPacket(0x10, 0x2F, 0xFE, bytes((7, 11))).encode().hex()}",
+        f"0.01 {AuxPacket(0x0D, 0x10, 0x77, bytes((1,))).encode().hex()}",
+    ]  # replayed 1000x faster, but shown with the recorded times
+    status, reply = upload(base, "/api/replay?name=night1.txt&speed=1000", "\n".join(lines).encode())
+    assert status == 200 and "night1.txt" in reply["message"]
+    current = state(base)
+    assert current["session"]["mode"] == "playback" and "night1.txt" in current["session"]["connection"]
+    assert wait_until(lambda: state(base)["session"]["open"] is False)  # replay finished
+    assert wait_until(lambda: state(base)["devices"] == [{"address": 16, "name": "AZM MC", "version": "7.11"}])
+    assert state(base)["unknown_count"] == 1
+    items = json.loads(get(base, "/api/discoveries")[1])["items"]
+    assert items[0]["command"] == 0x77 and items[0]["requests"] == ["01"]
+    assert items[0]["last_seen"] == 0.01  # the time in the recording, not the replay
+    times = [item["t"] for item in read_events(base, 4) if item["kind"] == "packet"]
+    assert times == [0.0, 0.01]
+    replay_file = session._replay_file
+    assert replay_file is not None and replay_file.exists()
+    assert post(base, "/api/disconnect")[0] == 200
+    assert not replay_file.exists()  # the uploaded copy is cleaned up
+    assert post(base, "/api/discoveries/clear")[0] == 200 and state(base)["unknown_count"] == 0
+
+
+def test_replay_rejects_bad_files(web):
+    _, base, _ = web
+    assert upload(base, "/api/replay?name=x", b"")[0] == 400
+    status, reply = upload(base, "/api/replay?name=x", b"this is not hex\n")
+    assert status == 400 and "not a raw capture" in reply["error"]
+    assert upload(base, "/api/replay?name=x&speed=0", b"3b032f10fec0")[0] == 400
+    assert state(base)["session"] is None
+
+
+def test_replay_requires_the_page_header(web):
+    _, base, _ = web
+    request = urllib.request.Request(base + "/api/replay", data=b"3b032f10fec0", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as error:
+        urllib.request.urlopen(request, timeout=5)
+    assert error.value.code == 403
+
+
+def test_listen_only_command_line_flag():
+    assert parse_args(["wifi", "1.2.3.4", "--listen-only"]).listen_only is True

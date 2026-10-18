@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Added
+
+- Listen-only mode (`--listen-only`, console command `l`, a switch in the web
+  page): nothing is ever transmitted, not even scans, keep-alive or GPS
+  replies, so a live session can be watched without disturbing it.
+- Unknown-traffic discovery: packets whose device or command is not in the
+  catalog are grouped with counts, peers and example payloads in each
+  direction. Shown in the web page (with highlighted rows, an "Only unknown"
+  filter and a CSV download) and with console command `u`.
+- Replay in the browser: choose a raw capture file and a speed in the
+  Connection panel. Replays keep the times of the original recording.
+- Downloads from the web page for the CSV log, the raw capture and the
+  unknown-traffic summary.
+- Decoders for the battery (voltage, status, charging, current), charger,
+  mount lights and focuser (position, goto, slew done, move rate, limits).
+  These formats come from community reverse engineering; payloads of an
+  unexpected length are shown as hex.
+- Tests run on every push on Windows, macOS and Linux.
+
 ### Changed
 
 - Web interface layout: detected devices at the top, then the traffic log, then
@@ -11,6 +30,8 @@
   in place and a button counts the newer ones; scrolling back to the top (or
   pressing the button) resumes following.
 - Each traffic message stays on one line.
+- Charger command `0x10` is named `CHG_MODE` and light command `0x10`
+  `LIGHT_LEVEL`, since each both reads and sets.
 
 ## 1.0.0
 

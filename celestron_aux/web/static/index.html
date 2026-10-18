@@ -18,6 +18,8 @@
     --sky: #0c1828;
     --sky-grid: rgba(150, 180, 215, 0.16);
     --star: #f6f0cf;
+    --flag: #9a6200;
+    --flag-bg: rgba(214, 150, 20, 0.12);
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     --radius-control: 6px;
@@ -37,6 +39,8 @@
       --sky: #04080e;
       --sky-grid: rgba(120, 160, 210, 0.14);
       --star: #fbf6dc;
+      --flag: #e8b04f;
+      --flag-bg: rgba(232, 176, 79, 0.10);
     }
   }
   /* Red-only palette that keeps the observer's eyes dark-adapted. */
@@ -53,6 +57,8 @@
     --sky: #040000;
     --sky-grid: rgba(255, 60, 40, 0.14);
     --star: #ff6a58;
+    --flag: #ff8a70;
+    --flag-bg: rgba(255, 58, 40, 0.10);
   }
 
   * { box-sizing: border-box; }
@@ -93,10 +99,11 @@
   .layout {
     display: grid;
     grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto auto auto 1fr;
     grid-template-areas:
       "controls devices"
       "controls traffic"
+      "controls unknown"
       "controls sky";
     align-items: start;
     gap: 18px;
@@ -107,9 +114,10 @@
   .controls { grid-area: controls; display: flex; flex-direction: column; gap: 18px; }
   .devices { grid-area: devices; }
   .traffic { grid-area: traffic; }
+  .unknown-panel { grid-area: unknown; }
   .sky { grid-area: sky; }
   @media (max-width: 860px) {
-    .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "controls" "devices" "traffic" "sky"; padding: 14px; }
+    .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "controls" "devices" "traffic" "unknown" "sky"; padding: 14px; }
   }
 
   .panel {
@@ -206,6 +214,17 @@
   .dir.tx { border-color: var(--accent); color: var(--accent); }
   tr.corrupt td { color: var(--danger); }
   tr.note td { color: var(--muted); font-style: italic; }
+  tr.unknown td { background: var(--flag-bg); }
+  tr.unknown td:first-child { box-shadow: inset 3px 0 0 var(--flag); }
+  .badge { font-size: 0.78rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--flag); color: var(--flag); white-space: nowrap; }
+  .setting-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .setting-row .switch { flex: 1; }
+  .link-button { padding: 3px 9px; font-size: 0.82rem; margin-top: 6px; }
+  #replay-fields input[type="file"] { width: 100%; font-size: 0.86rem; }
+  .discoveries td { font-size: 0.88rem; }
+  .discoveries .payloads { font-family: var(--mono); font-size: 0.82rem; color: var(--muted); white-space: normal; word-break: break-all; }
+  .discoveries .payloads b { font-family: var(--sans); font-weight: 600; color: var(--ink); }
+  .discoveries-wrap { overflow-x: auto; }
 
   .toast {
     position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
@@ -228,7 +247,9 @@
     <div><dt>Mount</dt><dd id="mount">Not detected</dd></div>
     <div><dt>Devices</dt><dd id="device-count">0</dd></div>
     <div><dt>Out-of-frame bytes</dt><dd id="oof">0</dd></div>
+    <div><dt>Unknown</dt><dd id="unknown-count">0</dd></div>
   </dl>
+  <span id="listen-badge" class="badge" hidden>Listen only</span>
   <button id="theme" class="theme" type="button" aria-pressed="false">Night vision</button>
 </header>
 
@@ -241,6 +262,7 @@
           <label><input type="radio" name="mode" value="wifi" checked><span>Wi-Fi</span></label>
           <label><input type="radio" name="mode" value="serial"><span>AUX port</span></label>
           <label><input type="radio" name="mode" value="hc"><span>Hand controller</span></label>
+          <label><input type="radio" name="mode" value="replay"><span>Replay</span></label>
         </div>
         <p id="mode-hint" class="hint"></p>
         <div id="wifi-fields" class="fields">
@@ -252,21 +274,32 @@
           <label class="field" id="serial-other-field" hidden>Port name<input id="serial-other" class="mono" type="text" placeholder="COM3 or /dev/cu.usbserial-1" autocomplete="off"></label>
           <div class="port-row"><p id="ports-note" class="hint"></p><button id="refresh-ports" type="button">Refresh</button></div>
         </div>
-        <label class="switch"><input id="scan-on-connect" type="checkbox" checked><span>Scan the bus after connecting</span></label>
+        <div id="replay-fields" class="fields single" hidden>
+          <label class="field">Capture file<input id="replay-file" type="file" accept=".txt,text/plain"></label>
+          <label class="field">Speed<select id="replay-speed">
+            <option value="1">Real time</option>
+            <option value="4">4× faster</option>
+            <option value="16">16× faster</option>
+            <option value="1000">As fast as possible</option>
+          </select></label>
+        </div>
+        <label class="switch" id="scan-on-connect-row"><input id="scan-on-connect" type="checkbox" checked><span>Scan the bus after connecting</span></label>
         <button id="connect" class="primary" type="button">Connect</button>
       </div>
       <div id="connected-view" hidden>
         <p id="connected-text"></p>
         <button id="disconnect" type="button">Disconnect</button>
       </div>
+      <label class="switch"><input type="checkbox" data-setting="listen_only">
+        <span>Listen only<small>Never transmit: no scans, keep-alive, GPS replies or commands. Use it to watch a session without disturbing it.</small></span></label>
     </section>
 
     <section class="panel" aria-labelledby="bus-title">
       <h2 id="bus-title">Bus</h2>
       <div class="buttons">
-        <button id="scan" class="primary" type="button">Scan the bus</button>
-        <button id="scan-all" type="button">Scan all addresses</button>
-        <button id="identify" type="button" data-needs-connection>Identify mount</button>
+        <button id="scan" class="primary" type="button" data-transmits>Scan the bus</button>
+        <button id="scan-all" type="button" data-transmits>Scan all addresses</button>
+        <button id="identify" type="button" data-transmits>Identify mount</button>
       </div>
       <p id="scan-note" class="hint">A full scan probes every address and takes about 40 seconds.</p>
     </section>
@@ -275,10 +308,16 @@
       <h2 id="switches-title">Recording and connection</h2>
       <label class="switch"><input type="checkbox" data-setting="keepalive">
         <span>Keep-alive<small>Sends a version request when the bus is idle, so Wi-Fi stays connected. Turns on by itself for Wi-Fi unless you change it.</small></span></label>
-      <label class="switch"><input type="checkbox" data-setting="csv">
-        <span>CSV log<small id="csv-path"></small></span></label>
-      <label class="switch"><input type="checkbox" data-setting="raw">
-        <span>Raw capture<small id="raw-path"></small></span></label>
+      <div class="setting-row">
+        <label class="switch"><input type="checkbox" data-setting="csv">
+          <span>CSV log<small id="csv-path"></small></span></label>
+        <button class="link-button" type="button" data-download="csv">Download</button>
+      </div>
+      <div class="setting-row">
+        <label class="switch"><input type="checkbox" data-setting="raw">
+          <span>Raw capture<small id="raw-path"></small></span></label>
+        <button class="link-button" type="button" data-download="raw">Download</button>
+      </div>
       <label class="switch"><input type="checkbox" data-setting="images">
         <span>Save StarSense images<small id="image-dir"></small></span></label>
       <p id="pre-connect-hint" class="hint">These apply from the first packet once you connect.</p>
@@ -301,8 +340,8 @@
     <section class="panel" aria-labelledby="ss-title">
       <h2 id="ss-title">StarSense</h2>
       <div class="buttons">
-        <button id="ss-capture" class="primary" type="button" data-needs-connection>Take a StarSense capture</button>
-        <button id="ss-sample" type="button" data-needs-connection>Send sample star list</button>
+        <button id="ss-capture" class="primary" type="button" data-transmits>Take a StarSense capture</button>
+        <button id="ss-sample" type="button" data-transmits>Send sample star list</button>
       </div>
       <p class="hint">A capture takes about 8 seconds; the star field updates when the list arrives.</p>
     </section>
@@ -331,6 +370,7 @@
     <div class="toolbar">
       <h2 id="traffic-title">Traffic</h2>
       <input id="filter" type="text" placeholder="Filter, e.g. GPS or 0x10" aria-label="Filter traffic">
+      <label class="switch"><input id="only-unknown" type="checkbox"><span>Only unknown</span></label>
       <label class="switch"><input id="show-raw" type="checkbox"><span>Raw bytes</span></label>
       <button id="to-latest" type="button" hidden>Newer messages</button>
       <button id="pause" type="button" aria-pressed="false">Pause</button>
@@ -340,6 +380,20 @@
       <table>
         <thead><tr><th>Time (s)</th><th></th><th>From</th><th>To</th><th>Command</th><th>Value</th><th class="raw">Raw</th></tr></thead>
         <tbody id="traffic"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel unknown-panel" aria-labelledby="unknown-title">
+    <div class="toolbar">
+      <h2 id="unknown-title">Unknown traffic</h2>
+      <button type="button" data-download="unknown">Download CSV</button>
+      <button id="clear-unknown" type="button">Clear</button>
+    </div>
+    <div class="discoveries-wrap">
+      <table class="discoveries">
+        <thead><tr><th>Device</th><th>Command</th><th>Count</th><th>Talks with</th><th>Example payloads</th><th>Last seen (s)</th></tr></thead>
+        <tbody id="discoveries"><tr class="empty-row"><td colspan="6">Nothing unknown yet. Packets the catalog cannot name are collected here, with example payloads, to help decode new devices.</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -420,18 +474,28 @@ function setConnection(up, text) {
 
 function render(s) {
   const session = s.session;
+  const replaying = session && session.mode === "playback";
+  const connectionName = session ? session.connection.replace(/^playback /, "Replay of ") : "";
   setConnection(s.connected, !session ? "Not connected"
-    : session.open ? session.connection : `${session.connection} (connection lost)`);
+    : session.open ? connectionName : `${connectionName} (${replaying ? "finished" : "connection lost"})`);
   $("#connect-form").hidden = Boolean(session);
   $("#connected-view").hidden = !session;
   $("#pre-connect-hint").hidden = Boolean(session);
-  if (session) {
+  if (session && session.mode === "playback") {
+    $("#connected-text").textContent = session.open ? `Replaying ${session.connection.replace(/^playback /, "")}.` : "Replay finished.";
+    $("#disconnect").textContent = session.open ? "Stop replay" : "Close replay";
+  } else if (session) {
     $("#connected-text").textContent = session.open
       ? `Connected to ${session.connection}.`
       : `The connection to ${session.connection} was lost.`;
     $("#disconnect").textContent = session.open ? "Disconnect" : "Close connection";
   }
   for (const button of document.querySelectorAll("[data-needs-connection]")) button.disabled = !s.connected;
+  const canTransmit = s.connected && !s.settings.listen_only && !(session && session.mode === "playback");
+  for (const button of document.querySelectorAll("[data-transmits]")) button.disabled = !canTransmit;
+  $("#listen-badge").hidden = !s.settings.listen_only;
+  $("#unknown-count").textContent = s.unknown_count;
+  if (s.unknown_count !== shownUnknownCount || s.unknown_count) loadDiscoveries(s.unknown_count);
   $("#mount").textContent = s.mount;
   $("#device-count").textContent = s.devices.length;
   $("#oof").textContent = s.out_of_frame_bytes;
@@ -443,7 +507,7 @@ function render(s) {
   $("#raw-path").textContent = s.settings.raw_path;
   $("#image-dir").textContent = `Folder: ${s.settings.image_dir}`;
 
-  for (const id of ["#scan", "#scan-all"]) $(id).disabled = s.scanning || !s.connected;
+  for (const id of ["#scan", "#scan-all"]) $(id).disabled = s.scanning || !canTransmit;
   $("#scan").textContent = s.scanning ? "Scanning…" : "Scan the bus";
 
   const gps = $("#gps-toggle");
@@ -490,6 +554,7 @@ function renderDevices(devices) {
   }
   select.value = devices.some((d) => String(d.address) === previous) ? previous : "";
   if (select.value !== previous) loadCommands();
+  $("#send").disabled = !select.value || !(state && state.connected && !state.settings.listen_only);
 }
 
 // --- connection -------------------------------------------------------------
@@ -498,6 +563,7 @@ const MODE_HINTS = {
   wifi: "SkyPortal or Evolution Wi-Fi. When the mount runs its own network it is usually at 1.2.3.4.",
   serial: "A serial adapter plugged into one of the mount’s AUX ports.",
   hc: "The hand controller’s serial port. It switches to AUX pass-through when you connect.",
+  replay: "Play back a raw capture recorded earlier, as if it were a live connection.",
 };
 const remembered = (() => { try { return JSON.parse(localStorage.getItem("celestron-aux-connection") || "{}"); } catch { return {}; } })();
 
@@ -507,8 +573,11 @@ function showModeFields() {
   const mode = chosenMode();
   $("#mode-hint").textContent = MODE_HINTS[mode];
   $("#wifi-fields").hidden = mode !== "wifi";
-  $("#serial-fields").hidden = mode === "wifi";
-  if (mode !== "wifi" && !$("#serial-select").options.length) loadPorts();
+  $("#serial-fields").hidden = mode !== "serial" && mode !== "hc";
+  $("#replay-fields").hidden = mode !== "replay";
+  $("#scan-on-connect-row").hidden = mode === "replay";
+  $("#connect").textContent = mode === "replay" ? "Start replay" : "Connect";
+  if ((mode === "serial" || mode === "hc") && !$("#serial-select").options.length) loadPorts();
 }
 
 async function loadPorts() {
@@ -538,8 +607,32 @@ async function loadPorts() {
   $("#serial-other-field").hidden = select.value !== "";
 }
 
+async function startReplay() {
+  const file = $("#replay-file").files[0];
+  if (!file) { say("Choose a capture file first, such as rawoutput.txt.", true); return; }
+  const button = $("#connect");
+  button.disabled = true;
+  button.textContent = "Starting…";
+  try {
+    const query = new URLSearchParams({ name: file.name, speed: $("#replay-speed").value });
+    const response = await fetch(`/api/replay?${query}`, {
+      method: "POST", headers: { "Content-Type": "text/plain", "X-Requested-With": "celestron-aux" }, body: file,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+    say(data.message);
+  } catch (error) {
+    say(error.message, true);
+  } finally {
+    button.disabled = false;
+    showModeFields();
+    refresh();
+  }
+}
+
 async function connect() {
   const mode = chosenMode();
+  if (mode === "replay") { await startReplay(); return; }
   const body = { mode, scan: $("#scan-on-connect").checked };
   if (mode === "wifi") {
     body.target = $("#wifi-host").value.trim();
@@ -559,6 +652,83 @@ async function connect() {
   button.textContent = "Connect";
 }
 
+// --- downloads --------------------------------------------------------------
+
+async function download(kind) {
+  try {
+    const response = await fetch(`/api/download/${kind}`, { cache: "no-store" });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `Download failed (${response.status}).`);
+    }
+    const name = (response.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || kind;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(await response.blob());
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  } catch (error) {
+    say(error.message, true);
+  }
+}
+
+// --- unknown traffic ----------------------------------------------------------
+
+let shownUnknownCount = -1;
+let discoveriesLoading = false;
+
+async function loadDiscoveries(count) {
+  if (discoveriesLoading) return;
+  discoveriesLoading = true;
+  try {
+    const response = await fetch("/api/discoveries", { cache: "no-store" });
+    renderDiscoveries((await response.json()).items);
+    shownUnknownCount = count;
+  } catch { /* try again on the next refresh */ } finally {
+    discoveriesLoading = false;
+  }
+}
+
+function payloadLine(cell, label, payloads) {
+  if (!payloads.length) return;
+  const line = document.createElement("div");
+  const title = document.createElement("b");
+  title.textContent = `${label}: `;
+  line.append(title, payloads.join("  "));
+  cell.append(line);
+}
+
+function renderDiscoveries(items) {
+  const body = $("#discoveries");
+  body.replaceChildren();
+  if (!items.length) {
+    const cell = body.insertRow().insertCell();
+    cell.parentElement.className = "empty-row";
+    cell.colSpan = 6;
+    cell.textContent = "Nothing unknown yet. Packets the catalog cannot name are collected here, with example payloads, to help decode new devices.";
+    return;
+  }
+  for (const item of items) {
+    const row = body.insertRow();
+    namedCell(row, [item.device_known ? item.device_name : "Unknown device", hex(item.device)]);
+    const command = row.insertCell();
+    command.className = "num";
+    command.textContent = hex(item.command);
+    const count = row.insertCell();
+    count.className = "num";
+    count.textContent = item.count;
+    row.insertCell().textContent = item.peers.map((p) => `${p.name} (${hex(p.address)})`).join(", ");
+    const payloads = row.insertCell();
+    payloads.className = "payloads";
+    payloadLine(payloads, "Sent to it", item.requests);
+    payloadLine(payloads, "Replied", item.replies);
+    if (!item.requests.length && !item.replies.length) payloads.textContent = "No payload";
+    const seen = row.insertCell();
+    seen.className = "num";
+    seen.textContent = item.last_seen.toFixed(1);
+  }
+}
+
 // --- send a command ---------------------------------------------------------
 
 async function loadCommands() {
@@ -566,7 +736,7 @@ async function loadCommands() {
   const commandSelect = $("#send-command");
   commandSelect.replaceChildren();
   commandSelect.disabled = !deviceValue;
-  $("#send").disabled = !deviceValue;
+  $("#send").disabled = !deviceValue || !(state && state.connected && !state.settings.listen_only);
   if (!deviceValue) { updateCustomField(); return; }
   try {
     const response = await fetch(`/api/commands?device=${deviceValue}`);
@@ -737,6 +907,7 @@ function buildRow(item) {
   }
   const d = describe(item);
   if (item.kind === "corrupt") row.className = "corrupt";
+  if (item.unknown) { row.classList.add("unknown"); row.dataset.unknown = "1"; }
 
   const time = row.insertCell();
   time.className = "t";
@@ -763,7 +934,8 @@ function buildRow(item) {
 
 function applyFilter(row) {
   const text = $("#filter").value.trim().toLowerCase();
-  row.hidden = Boolean(text) && !row.dataset.text.includes(text);
+  const onlyUnknown = $("#only-unknown").checked;
+  row.hidden = (Boolean(text) && !row.dataset.text.includes(text)) || (onlyUnknown && row.dataset.unknown !== "1");
 }
 
 function connectEvents() {
@@ -815,6 +987,11 @@ for (const box of document.querySelectorAll("[data-setting]")) {
 }
 $("#show-raw").addEventListener("change", (e) => document.body.classList.toggle("show-raw", e.currentTarget.checked));
 $("#filter").addEventListener("input", () => { for (const row of $("#traffic").rows) applyFilter(row); });
+$("#only-unknown").addEventListener("change", () => { for (const row of $("#traffic").rows) applyFilter(row); });
+for (const button of document.querySelectorAll("[data-download]")) {
+  button.addEventListener("click", () => download(button.dataset.download));
+}
+$("#clear-unknown").addEventListener("click", (e) => act("/api/discoveries/clear", {}, e.currentTarget));
 $("#clear").addEventListener("click", () => { $("#traffic").replaceChildren(); pending.length = 0; unseen = 0; updateLatestButton(); });
 $("#log").addEventListener("scroll", () => { if (atTop()) unseen = 0; updateLatestButton(); }, { passive: true });
 $("#to-latest").addEventListener("click", () => { $("#log").scrollTop = 0; unseen = 0; updateLatestButton(); });

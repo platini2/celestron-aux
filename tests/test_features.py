@@ -1,4 +1,5 @@
 import io
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -109,5 +110,35 @@ def test_playback_replays_a_recording(tmp_path):
     try:
         assert wait_until(lambda: app.bus.closed.is_set())
         assert wait_until(lambda: app.devices() == [(0x10, "7.11")])
+    finally:
+        app.close()
+
+
+def test_listen_only_blocks_every_transmission():
+    mount = FakeMount({0x10: b"\x07\x0b"})
+    app = ScannerApp(mount, AppConfig(listen_only=True, save_starsense_images=False), stream=io.StringIO())
+    app.bus._inter_frame_delay = 0
+    app.start(initial_scan=True)  # the initial scan is skipped
+    try:
+        app.gps.enable(-34.6, -58.4)
+        mount.inject(AuxPacket(0x0D, 0xB0, 0x33).encode())  # a GPS question the emulator would answer
+        assert app.send(AuxPacket(0x2F, 0x10, 0xFE)) is False
+        assert app.send_sample_star_list() is False
+        time.sleep(0.5)  # give the GPS emulator time to (not) answer
+        assert mount.written == []
+        app.listen_only = False
+        assert app.send(AuxPacket(0x2F, 0x10, 0xFE)) is True
+        assert len(mount.written) == 1
+    finally:
+        app.close()
+
+
+def test_unknown_traffic_is_collected_by_the_app():
+    mount = FakeMount({})
+    app = ScannerApp(mount, AppConfig(save_starsense_images=False), stream=io.StringIO())
+    app.start(initial_scan=False)
+    try:
+        mount.inject(AuxPacket(0x0D, 0x10, 0x77, b"\x01").encode())
+        assert wait_until(lambda: len(app.discovery) == 1)
     finally:
         app.close()

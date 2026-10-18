@@ -13,7 +13,7 @@ authors = [{ name = "Patricio Latini", email = "p_latini@hotmail.com" }]
 dependencies = ["pyserial>=3.4", "Pillow>=8.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "mypy>=1.0", "types-pyserial"]
+dev = ["pytest>=7", "mypy>=1.0", "types-pyserial", "pyflakes>=3"]
 
 [project.scripts]
 celestron-aux = "celestron_aux.cli:main"

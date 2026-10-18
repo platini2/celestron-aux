@@ -32,6 +32,17 @@ def test_unknown_names_and_payloads_fall_back_gracefully():
     (0x17, 0x0D, 0x00, "2ee00bb8", "12 V - 3 A"),
     (0x17, 0x0D, 0x18, "00004e20000027100a", "Temp: 20\N{DEGREE SIGN}C Dew: 10\N{DEGREE SIGN}C Hum: 10%"),
     (0x0D, 0x17, 0x11, "01", "1 - Get dew heater ports"),
+    (0xB6, 0x0D, 0x10, "010200bc614e", "12.346 V, status 2 (high), charging"),
+    (0xB6, 0x0D, 0x18, "09a4", "2468 mA"),
+    (0x0D, 0xB7, 0x10, "01", "Set charging on"),
+    (0xB7, 0x0D, 0x10, "00", "Charging off"),
+    (0x0D, 0xBF, 0x10, "0280", "Set Wi-Fi light to 128"),
+    (0x0D, 0xBF, 0x10, "00", "Tray light"),
+    (0xBF, 0x0D, 0x10, "40", "Level 64"),
+    (0x12, 0x0D, 0x01, "0186a0", "Position 100000"),
+    (0x0D, 0x12, 0x02, "0186a0", "To 100000"),
+    (0x12, 0x0D, 0x13, "ff", "255 - Done"),
+    (0x12, 0x0D, 0x2C, "000003e8000f4240", "Limits 1000 to 1000000"),
 ])
 def test_payload_decoders(source, destination, command, data, expected):
     assert value(source, destination, command, data) == expected
@@ -39,3 +50,4 @@ def test_payload_decoders(source, destination, command, data, expected):
 
 def test_truncated_payload_is_reported_not_raised():
     assert value(0x17, 0x0D, 0x18, "0000") == "0000 (unexpected format)"
+    assert value(0xB6, 0x0D, 0x10, "01") == "01 (unexpected format)"

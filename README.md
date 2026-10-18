@@ -15,8 +15,12 @@ celestron-aux playback rawoutput.txt  # replay a recorded session
 ```
 
 `python -m celestron_aux ...` works too. Run `celestron-aux -h` for every option
-(`--csv`, `--raw`, `--no-scan`, `--keepalive`, `--image-dir`, `-v`, ...).
-Inside the session, type `h` to list the interactive commands.
+(`--csv`, `--raw`, `--no-scan`, `--listen-only`, `--keepalive`, `--image-dir`,
+`-v`, ...). Inside the session, type `h` to list the interactive commands.
+
+Use `--listen-only` (or `l` in the session) to watch a hand controller talking
+to the mount without ever transmitting anything yourself. Type `u` to list the
+traffic the catalog cannot name yet, with example payloads.
 
 ## Web interface
 
@@ -36,9 +40,16 @@ on a mount's own Wi-Fi network.
 Started without a mode and target, the page offers Wi-Fi, AUX port and hand
 controller connections and lists the serial ports it finds. Because the page is
 already open when the connection starts, it shows the traffic from the first
-packet. Recording settings and GPS emulation can be set before connecting, and
-you can disconnect and reconnect without restarting; the CSV log and raw
-capture stay open across connections instead of being overwritten.
+packet. Recording settings, listen-only mode and GPS emulation can be set
+before connecting, and you can disconnect and reconnect without restarting;
+the CSV log and raw capture stay open across connections instead of being
+overwritten.
+
+The page can also replay a raw capture you choose in the browser, keeping the
+original timings, and it offers the CSV log, the raw capture and a summary of
+unknown traffic as downloads. Unknown packets are highlighted in the traffic
+log and collected in their own table with example payloads, to help decode new
+devices.
 
 There is no password: anyone who can open the page can control the mount. The
 default address only accepts connections from the same computer; use
@@ -57,6 +68,7 @@ default address only accepts connections from the same computer; use
 | `bus.py` | Receive and dispatch threads, paced sending, local echo |
 | `registry.py` | Devices discovered and mount model |
 | `scanner.py` | Active device discovery |
+| `discovery.py` | Collects traffic the catalog cannot name |
 | `keepalive.py` | Idle-connection keep-alive |
 | `gps_emulator.py` | Replies to GPS queries with a fixed position and UTC time |
 | `starsense.py` | Star-list decoding, PNG rendering, capture sequence |
