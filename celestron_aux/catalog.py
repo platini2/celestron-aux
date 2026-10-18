@@ -20,6 +20,9 @@ class Addr:
     SCANNER = 0x2F  # the address this tool uses on the bus
     GPS = 0xB0
     STARSENSE_CAMERA = 0xB4
+    BATTERY = 0xB6
+    CHARGER = 0xB7
+    LIGHTS = 0xBF
 
 
 class Cmd:
@@ -218,10 +221,10 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
     },
     0xB5: {0xFE: "WIFI_GET_FW_VER"},
     0xB6: {0x10: "BAT_GET_VOLTAGE", 0x18: "BAT_GET_CURRENT", 0xFE: "BAT_GET_FW_VER"},
-    0xB7: {0x10: "CHG_GET_MODE", 0xFE: "CHG_GET_FW_VER"},
+    0xB7: {0x10: "CHG_MODE", 0xFE: "CHG_GET_FW_VER"},  # 0x10 both reads and sets
     0xBB: {0xFE: "DEWHEATER_GET_FW_VER"},
     0xBD: {0xFE: "SS2_GET_FW_VER"},
-    0xBF: {0x10: "LIGHT_GET_LEVEL", 0xFE: "LIGHT_GET_FW_VER"},
+    0xBF: {0x10: "LIGHT_LEVEL", 0xFE: "LIGHT_GET_FW_VER"},  # 0x10 both reads and sets
 }
 
 UNKNOWN = "Unknown"
@@ -231,8 +234,16 @@ def device_name(address: int) -> str:
     return DEVICE_NAMES.get(address, UNKNOWN)
 
 
+def is_known_device(address: int) -> bool:
+    return address in DEVICE_NAMES
+
+
 def command_name(device: int, command: int) -> str:
     return _DEVICE_COMMANDS.get(device, {}).get(command, UNKNOWN)
+
+
+def is_known_command(device: int, command: int) -> bool:
+    return command in _DEVICE_COMMANDS.get(device, {})
 
 
 def commands_for(device: int) -> List[Tuple[int, str]]:

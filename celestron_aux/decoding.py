@@ -257,3 +257,78 @@ def _dew_ambient(data: bytes, is_reply: bool) -> str:
         f"Temp: {temperature:g}\N{DEGREE SIGN}C Dew: {dew_point:g}\N{DEGREE SIGN}C "
         f"Hum: {data[8]}%"
     )
+
+
+# --- power, charger, lights and focuser -------------------------------------
+# These formats come from community reverse engineering (the INDI celestronaux
+# driver and caux-simulator), not from Celestron documentation. Payloads of an
+# unexpected length fall back to hex, so a wrong guess shows up as raw bytes
+# rather than as a believable but wrong number.
+
+_ON_OFF = {0: "Off", 1: "On"}
+
+
+@_decodes([Addr.BATTERY], [0x10])
+def _battery_status(data: bytes, is_reply: bool) -> str:
+    if not is_reply:
+        return data.hex()
+    _require(data, 6)
+    level = {0: "low", 1: "medium", 2: "high"}.get(data[1])
+    status = f"status {data[1]}" + (f" ({level})" if level else "")
+    charging = "charging" if data[0] else "not charging"
+    return f"{_uint(data, 2, 6) / 1_000_000:.3f} V, {status}, {charging}"
+
+
+@_decodes([Addr.BATTERY], [0x18])
+def _battery_current(data: bytes, is_reply: bool) -> str:
+    _require(data, 2)
+    return f"{_uint(data, 0, 2)} mA"
+
+
+@_decodes([Addr.CHARGER], [0x10])
+def _charger_mode(data: bytes, is_reply: bool) -> str:
+    state = _ON_OFF.get(data[0], str(data[0]))
+    return f"Charging {state.lower()}" if is_reply else f"Set charging {state.lower()}"
+
+
+_LIGHTS = {0: "tray", 1: "logo", 2: "Wi-Fi"}
+
+
+@_decodes([Addr.LIGHTS], [0x10])
+def _light_level(data: bytes, is_reply: bool) -> str:
+    if is_reply:
+        return f"Level {data[0]}"
+    light = _LIGHTS.get(data[0], f"light {data[0]}")
+    if len(data) >= 2:
+        return f"Set {light} light to {data[1]}"
+    return f"{light[:1].upper()}{light[1:]} light"
+
+
+@_decodes([Addr.FOCUSER], [0x01])
+def _focuser_position(data: bytes, is_reply: bool) -> str:
+    _require(data, 3)
+    return f"Position {_uint(data, 0, 3)}"
+
+
+@_decodes([Addr.FOCUSER], [0x02])
+def _focuser_goto(data: bytes, is_reply: bool) -> str:
+    if is_reply:
+        return _labelled(data[0], _ACK)
+    _require(data, 3)
+    return f"To {_uint(data, 0, 3)}"
+
+
+@_decodes([Addr.FOCUSER], [0x13])
+def _focuser_slew_done(data: bytes, is_reply: bool) -> str:
+    return _labelled(data[0], {0: "Moving", 0xFF: "Done"})
+
+
+@_decodes([Addr.FOCUSER], [0x24, 0x25])
+def _focuser_move_rate(data: bytes, is_reply: bool) -> str:
+    return _labelled(data[0], _ACK) if is_reply else f"Rate {data[0]}"
+
+
+@_decodes([Addr.FOCUSER], [0x2C])
+def _focuser_limits(data: bytes, is_reply: bool) -> str:
+    _require(data, 8)
+    return f"Limits {_uint(data, 0, 4)} to {_uint(data, 4, 8)}"

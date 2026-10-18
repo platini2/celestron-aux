@@ -39,20 +39,23 @@ def load_capture(path: Path) -> List[_Entry]:
 class PlaybackTransport(Transport):
     echoes_tx = False
 
-    def __init__(self, path: Path, speed: float = 1.0, poll_interval: float = 0.05) -> None:
+    def __init__(self, path: Path, speed: float = 1.0, poll_interval: float = 0.05,
+                 name: Optional[str] = None) -> None:
         super().__init__(poll_interval)
         if speed <= 0:
             raise ValueError("speed must be positive")
         self.path = path
+        self.name = name or str(path)
         self.speed = speed
         self._entries: Iterator[_Entry] = iter(())
         self._pending: Optional[_Entry] = None
         self._started_at = 0.0
         self._first_timestamp: Optional[float] = None
+        self._recorded: Optional[float] = None
 
     @property
     def description(self) -> str:
-        return f"playback {self.path}"
+        return f"playback {self.name}"
 
     def open(self) -> None:
         self._entries = iter(load_capture(self.path))
@@ -67,7 +70,7 @@ class PlaybackTransport(Transport):
         if self._pending is None:
             self._pending = next(self._entries, None)
             if self._pending is None:
-                raise TransportClosed(f"end of capture file {self.path}")
+                raise TransportClosed(f"end of capture file {self.name}")
         timestamp, data = self._pending
         delay = self._due_time(timestamp) - time.monotonic()
         if delay > 0:
@@ -75,7 +78,14 @@ class PlaybackTransport(Transport):
             if delay > self.poll_interval:
                 return b""
         self._pending = None
+        if timestamp is not None and self._first_timestamp is not None:
+            self._recorded = timestamp - self._first_timestamp
+        else:
+            self._recorded = None
         return data
+
+    def recorded_time(self) -> Optional[float]:
+        return self._recorded
 
     def write(self, data: bytes) -> None:
         log.debug("playback mode: not sending %s", data.hex())

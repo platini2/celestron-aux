@@ -71,6 +71,9 @@ class AuxBus:
         self._stop = threading.Event()
         self._closed = threading.Event()
         self._last_tx = time.monotonic()
+        #: When True nothing is ever transmitted: every send is dropped here, the
+        #: single path all outgoing traffic takes (scans, keep-alive, GPS, commands).
+        self.listen_only = False
         self._receive_thread = threading.Thread(target=self._receive_loop, name="aux-receive", daemon=True)
         self._dispatch_thread = threading.Thread(target=self._dispatch_loop, name="aux-dispatch", daemon=True)
 
@@ -115,8 +118,11 @@ class AuxBus:
     # --- traffic ------------------------------------------------------------
 
     def send(self, frame: OutgoingFrame) -> bool:
-        """Transmit a frame. Returns False if the bus is no longer open."""
+        """Transmit a frame. Returns False if the bus is closed or listen-only."""
         raw = frame.encode()
+        if self.listen_only:
+            log.debug("listen-only; not sending %s", raw.hex())
+            return False
         with self._send_lock:
             if not self.is_open:
                 log.debug("bus closed; dropping %s", raw.hex())
@@ -156,7 +162,8 @@ class AuxBus:
                 break
             if not data:
                 continue
-            timestamp = self._clock.now()
+            recorded = self._transport.recorded_time()  # playback keeps the original times
+            timestamp = self._clock.now() if recorded is None else recorded
             self._tap(Direction.RX, data, timestamp)
             for parsed in self._parser.feed(data):
                 self._events.put(BusEvent(timestamp, Direction.RX, parsed.frame, parsed.raw))

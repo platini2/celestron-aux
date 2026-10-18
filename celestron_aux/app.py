@@ -13,6 +13,7 @@ from ._sample_data import SAMPLE_STAR_LIST
 from .bus import AuxBus, OutgoingFrame
 from .catalog import Addr
 from .clock import SessionClock
+from .discovery import DiscoveryTracker
 from .gps_emulator import FIRMWARE_VERSION, GpsEmulator
 from .keepalive import DEFAULT_INTERVAL, KeepAlive
 from .output import ConsoleView, CsvLogger, RawRecorder
@@ -36,6 +37,7 @@ class AppConfig:
     save_starsense_images: bool = True
     verbose: bool = False
     quiet: bool = False  # no console output at all (the web interface shows the traffic)
+    listen_only: bool = False  # never transmit anything
     keepalive: Optional[bool] = None  # None: use the transport's default
     keepalive_interval: float = DEFAULT_INTERVAL
 
@@ -43,20 +45,23 @@ class AppConfig:
 class ScannerApp:
     def __init__(self, transport: Transport, config: Optional[AppConfig] = None,
                  stream: IO[str] = sys.stdout, *, csv_log: Optional[CsvLogger] = None,
-                 raw_recorder: Optional[RawRecorder] = None) -> None:
-        """``csv_log`` and ``raw_recorder`` may be shared with a longer-lived owner
-        (the web session keeps them open across connections); the app then
-        leaves closing them to that owner."""
+                 raw_recorder: Optional[RawRecorder] = None,
+                 discovery: Optional[DiscoveryTracker] = None) -> None:
+        """``csv_log``, ``raw_recorder`` and ``discovery`` may be shared with a
+        longer-lived owner (the web session keeps them across connections); the
+        app then leaves closing the log files to that owner."""
         config = config or AppConfig()
         self.config = config
         self.transport = transport
         self.clock = SessionClock()
         self.bus = AuxBus(transport, self.clock)
+        self.bus.listen_only = config.listen_only
         self.registry = DeviceRegistry()
         self.console = ConsoleView(stream, verbose=config.verbose, enabled=not config.quiet)
         self._owns_sinks = csv_log is None and raw_recorder is None
         self.csv_log = csv_log or CsvLogger()
         self.raw_recorder = raw_recorder or RawRecorder()
+        self.discovery = discovery if discovery is not None else DiscoveryTracker()
         self.images = StarImageSaver(config.image_dir, enabled=config.save_starsense_images)
         self.gps = GpsEmulator(self.bus.send)
         self.scanner = BusScanner(self.bus, self.registry)
@@ -65,7 +70,7 @@ class ScannerApp:
         self._scan_lock = threading.Lock()
 
         # Order matters only cosmetically: state first, then output, then reactions.
-        for listener in (self.registry, self.console, self.csv_log, self.images, self.gps):
+        for listener in (self.registry, self.discovery, self.console, self.csv_log, self.images, self.gps):
             self.bus.subscribe(listener)
         self.bus.add_raw_tap(self.raw_recorder)
 
@@ -85,7 +90,7 @@ class ScannerApp:
         self.console.banner("Starting AUXBUS monitor")
         self.bus.start()
         self.keepalive.start()
-        if initial_scan:
+        if initial_scan and not self.listen_only:
             self.start_scan()
 
     def close(self) -> None:
@@ -107,6 +112,15 @@ class ScannerApp:
             return False
         self._in_background("aux-scan", self._scan, full)
         return True
+
+    @property
+    def listen_only(self) -> bool:
+        return self.bus.listen_only
+
+    @listen_only.setter
+    def listen_only(self, enabled: bool) -> None:
+        self.config.listen_only = enabled
+        self.bus.listen_only = enabled
 
     @property
     def scanning(self) -> bool:

@@ -45,6 +45,11 @@ class Transport(ABC):
     @abstractmethod
     def write(self, data: bytes) -> None: ...
 
+    def recorded_time(self) -> Optional[float]:
+        """When the chunk just read was originally recorded, in seconds from the start
+        of the recording, or None for live data (the session clock is used then)."""
+        return None
+
     def __enter__(self) -> "Transport":
         self.open()
         return self

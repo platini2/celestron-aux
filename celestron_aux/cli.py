@@ -39,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=2000, help="TCP port in wifi mode (default: 2000)")
     parser.add_argument("--speed", type=float, default=1.0, help="playback speed multiplier (default: 1.0)")
     parser.add_argument("--no-scan", action="store_true", help="do not scan the bus on startup")
+    parser.add_argument("--listen-only", action="store_true",
+                        help="never transmit: no scan, keep-alive, GPS replies or commands")
     parser.add_argument("-v", "--verbose", action="store_true", help="show raw bytes of every frame")
     parser.add_argument("--keepalive", action=argparse.BooleanOptionalAction, default=None,
                         help="send keep-alive traffic (default: on for wifi, off otherwise)")
@@ -65,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
 def config_from_args(args: argparse.Namespace) -> AppConfig:
     config = AppConfig(
         quiet=bool(args.web),
+        listen_only=args.listen_only,
         image_dir=args.image_dir,
         save_starsense_images=not args.no_starsense_images,
         verbose=args.verbose,
@@ -101,6 +104,8 @@ class Repl:
             _Command("s", "rescan the bus (known addresses)", lambda: self._scan(full=False)),
             _Command("a", "rescan the bus (all addresses)", lambda: self._scan(full=True)),
             _Command("i", "identify the mount", self._identify_mount),
+            _Command("l", "toggle listen-only mode (never transmit)", self._toggle_listen_only),
+            _Command("u", "show unknown traffic", self._show_unknown),
             _Command("k", "toggle keep-alive", self._toggle_keepalive),
             _Command("g", "toggle GPS emulation", self._toggle_gps),
             _Command("v", "toggle verbose output", self._toggle_verbose),
@@ -143,7 +148,15 @@ class Repl:
         self.app.show_devices()
         return False
 
+    def _blocked(self) -> bool:
+        if self.app.listen_only:
+            self._write("Listen-only mode is on; press 'l' to allow sending.")
+            return True
+        return False
+
     def _send_command(self) -> bool:
+        if self._blocked():
+            return False
         devices = self.app.devices()
         if not devices:
             self._write("No devices detected yet; run a scan first ('s').")
@@ -166,13 +179,37 @@ class Repl:
         return False
 
     def _scan(self, full: bool) -> bool:
+        if self._blocked():
+            return False
         if not self.app.start_scan(full):
             self._write("A scan is already running.")
         return False
 
     def _identify_mount(self) -> bool:
+        if self._blocked():
+            return False
         if not self.app.identify_mount():
             self._write("No azimuth motor detected; run a scan first.")
+        return False
+
+    def _toggle_listen_only(self) -> bool:
+        self.app.listen_only = not self.app.listen_only
+        self._write("Listen-only mode on: nothing will be transmitted." if self.app.listen_only
+                    else "Listen-only mode off.")
+        return False
+
+    def _show_unknown(self) -> bool:
+        items = self.app.discovery.snapshot()
+        self.app.console.banner(f"Unknown traffic ({len(items)})")
+        if not items:
+            self.app.console.message("(none so far)")
+        for d in items:
+            peers = ", ".join(f"0x{p:02x}" for p in sorted(d.peers))
+            self.app.console.message(
+                f"{catalog.device_name(d.device):<21} (0x{d.device:02x}) cmd 0x{d.command:02x}"
+                f"  x{d.count}  with {peers}"
+                + (f"  sent: {' '.join(d.requests)}" if d.requests else "")
+                + (f"  replied: {' '.join(d.replies)}" if d.replies else ""))
         return False
 
     def _toggle_keepalive(self) -> bool:
@@ -223,11 +260,15 @@ class Repl:
         return False
 
     def _starsense_capture(self) -> bool:
+        if self._blocked():
+            return False
         self.app.start_starsense_capture()
         self._write("StarSense capture started (takes about 8 seconds).")
         return False
 
     def _send_sample(self) -> bool:
+        if self._blocked():
+            return False
         self.app.send_sample_star_list()
         return False
 
