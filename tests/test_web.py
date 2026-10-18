@@ -175,6 +175,18 @@ def test_event_stream_has_connection_notes_and_traffic(web, mount):
     assert any(item.get("command") == "MTR_GET_VERSION" for item in items)
 
 
+def test_starsense_capture_needs_a_detected_camera(web):
+    session, base, _ = web
+    mount = FakeMount({0xB4: b"\x01\x02"})
+    session.connect_transport(mount, mode="wifi", scan=False)
+    session.app.bus._inter_frame_delay = 0
+    status, reply = post(base, "/api/starsense/capture")
+    assert status == 409 and "No StarSense camera" in reply["error"]
+    post(base, "/api/send", {"device": 0xB4, "command": 0xFE})
+    assert wait_until(lambda: any(d["address"] == 0xB4 for d in state(base)["devices"]))
+    assert post(base, "/api/starsense/capture")[0] == 200
+
+
 def test_star_lists_reach_the_page(web):
     session, base, _ = web
     session.connect_transport(FakeMount({}), mode="wifi", scan=False)
@@ -190,6 +202,15 @@ def test_post_requires_the_page_header_and_unknown_routes_404(web):
     with pytest.raises(urllib.error.HTTPError) as error:
         get(base, "/nope")
     assert error.value.code == 404
+
+
+def test_state_reports_version_and_copyright(web):
+    from celestron_aux import __copyright__, __version__
+
+    _, base, _ = web
+    current = state(base)
+    assert current["version"] == __version__ and current["copyright"] == __copyright__
+    assert "Patricio Latini" in __copyright__ and "2021" in __copyright__
 
 
 def test_page_is_served(web):
@@ -285,6 +306,101 @@ def test_replay_requires_the_page_header(web):
     with pytest.raises(urllib.error.HTTPError) as error:
         urllib.request.urlopen(request, timeout=5)
     assert error.value.code == 403
+
+
+def test_motion_endpoints(web):
+    session, base, _ = web
+    mount = FakeMount({0x10: b"\x07\x0b"}, positions={0x10: bytes.fromhex("400000")})
+    session.connect_transport(mount, mode="wifi", scan=False)
+    session.app.bus._inter_frame_delay = 0
+    status, reply = post(base, "/api/motion/move", {"axis": "azm", "direction": 1, "rate": 5})
+    assert status == 503 and "Mount control is off" in reply["error"]
+    assert post(base, "/api/settings", {"motion_enabled": True})[0] == 200
+    assert wait_until(lambda: state(base)["motion"]["axes"]["azm"]["degrees"] == 90.0)
+    assert post(base, "/api/motion/move", {"axis": "azm", "direction": 1, "rate": 5})[0] == 200
+    assert state(base)["motion"]["axes"]["azm"]["direction"] == 1
+    assert post(base, "/api/motion/stop", {"axis": "azm"})[0] == 200
+    assert state(base)["motion"]["axes"]["azm"]["direction"] == 0
+    assert post(base, "/api/motion/move", {"axis": "sideways", "direction": 1, "rate": 5})[0] == 400
+    assert post(base, "/api/motion/move", {"axis": "alt", "direction": 0, "rate": 5})[0] == 400
+    assert post(base, "/api/motion/move", {"axis": "alt", "direction": 1, "rate": 12})[0] == 400
+    assert post(base, "/api/settings", {"listen_only": True})[0] == 200
+    status, reply = post(base, "/api/motion/move", {"axis": "alt", "direction": 1, "rate": 5})
+    assert status == 409 and "Listen-only" in reply["error"]
+
+
+def test_gps_and_focuser_panels_follow_detection_and_their_switches(web):
+    session, base, _ = web
+    mount = FakeMount({0x12: b"\x07\x03"}, replies={(0x12, 0x01): (777).to_bytes(3, "big")})
+    session.connect_transport(mount, mode="wifi", scan=False)
+    session.app.bus._inter_frame_delay = 0
+    current = state(base)
+    assert current["gps_status"]["detected"] is False and current["focuser"]["detected"] is False
+    post(base, "/api/send", {"device": 0x12, "command": 0xFE})  # a scan would find it the same way
+    assert wait_until(lambda: state(base)["focuser"]["detected"] is True)
+    assert state(base)["focuser"]["enabled"] is False
+    assert post(base, "/api/settings", {"focuser_polling": True})[0] == 200
+    assert wait_until(lambda: state(base)["focuser"]["position"] == 777)
+    assert state(base)["settings"]["focuser_polling"] is True
+
+
+def test_feed_items_carry_decoded_value_and_payload_hex(web):
+    from celestron_aux.protocol import AuxPacket
+
+    session, base, _ = web
+    mount = FakeMount({})
+    session.connect_transport(mount, mode="wifi", scan=False)
+    mount.inject(AuxPacket(0x10, 0x0D, 0xFE, bytes((7, 11))).encode())
+    mount.inject(AuxPacket(0x10, 0x0D, 0x77, bytes((1, 2))).encode())
+    packets = [item for item in read_events(base, 4) if item["kind"] == "packet"]
+    assert (packets[0]["value"], packets[0]["payload"]) == ("7.11", "070b")
+    assert (packets[1]["value"], packets[1]["payload"]) == ("0102", "0102")  # undecoded: hex in both
+
+
+def test_marks_from_the_page(web):
+    session, base, _ = web
+    assert post(base, "/api/mark", {"text": "too early"})[0] == 409  # not connected
+    session.connect_transport(FakeMount({}), mode="wifi", scan=False)
+    assert post(base, "/api/mark", {"text": "  "})[0] == 400
+    status, reply = post(base, "/api/mark", {"text": "pressed Align"})
+    assert status == 200 and "pressed Align" in reply["message"]
+    marks = [item for item in read_events(base, 3) if item["kind"] == "mark"]
+    assert marks and marks[0]["text"] == "pressed Align" and marks[0]["t"] is not None
+
+
+def test_naming_from_the_page(web, isolated_user_catalog):
+    from celestron_aux.protocol import AuxPacket
+
+    session, base, _ = web
+    mount = FakeMount({})
+    session.connect_transport(mount, mode="wifi", scan=False)
+    mount.inject(AuxPacket(0x0D, 0x10, 0x77, b"\x01").encode())
+    mount.inject(AuxPacket(0x0D, 0x99, 0x05).encode())
+    assert wait_until(lambda: state(base)["unknown_count"] == 2)
+
+    assert post(base, "/api/catalog/name", {"device": 0x10, "command": 0x77})[0] == 400  # no name typed
+    assert post(base, "/api/catalog/name", {"device": 0x10, "command": 0x77, "command_name": "x" * 41})[0] == 400
+    status, reply = post(base, "/api/catalog/name", {"device": 0x10, "command": 0x77, "command_name": "MTR_GET_TEMP"})
+    assert status == 200 and "MTR_GET_TEMP" in reply["message"]
+    assert state(base)["unknown_count"] == 1  # that entry is no longer unknown
+    assert post(base, "/api/catalog/name", {"device": 0x99, "command": 0x05,
+                                            "device_name": "Polar finder", "command_name": "PF_GET_STATE"})[0] == 200
+    assert state(base)["unknown_count"] == 0 and state(base)["catalog"]["names"] == 3
+
+    names = json.loads(get(base, "/api/catalog")[1])
+    assert names["path"] == str(isolated_user_catalog.path) and len(names["entries"]) == 3
+    assert json.loads(isolated_user_catalog.path.read_text())["devices"] == {"0x99": "Polar finder"}
+
+    mount.inject(AuxPacket(0x0D, 0x99, 0x05).encode())  # new traffic now carries the names
+    packets = [i for i in read_events(base, 5) if i["kind"] == "packet" and i["receiver_id"] == 0x99]
+    assert packets[-1]["receiver"] == "Polar finder" and packets[-1]["command"] == "PF_GET_STATE"
+
+    assert post(base, "/api/catalog/remove", {"device": 0x99, "command": None})[0] == 200
+    assert state(base)["catalog"]["names"] == 2
+
+
+def test_catalog_command_line_option(tmp_path):
+    assert parse_args(["--web", "--catalog", str(tmp_path / "mine.json")]).catalog == tmp_path / "mine.json"
 
 
 def test_listen_only_command_line_flag():
