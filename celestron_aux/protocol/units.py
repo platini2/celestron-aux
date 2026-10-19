@@ -33,6 +33,14 @@ def format_dms(degrees: float) -> str:
     return f"{sign}{whole_degrees}\N{DEGREE SIGN}{minutes:02d}'{remainder / 100:05.2f}\""
 
 
+def format_hms(degrees: float) -> str:
+    """Format a right ascension given in degrees as hours, minutes and seconds (0.01 s resolution)."""
+    hundredths = round((degrees % 360) / 15 * 360_000) % (24 * 360_000)  # 24h00m00s wraps to 0h
+    hours, remainder = divmod(hundredths, 360_000)
+    minutes, remainder = divmod(remainder, 6_000)
+    return f"{hours}h{minutes:02d}m{remainder / 100:05.2f}s"
+
+
 def format_version(data: bytes) -> str:
     """Format a firmware version reply: ``major.minor`` or ``major.minor.build``."""
     if len(data) < 4:

@@ -321,7 +321,7 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
         0x30: "SSAG_SET_MOUNT_INFO",
         0x31: "SSAG_SET_GEOLOCATION",
         0x32: "SSAG_SET_TIME_NOW",
-        0x45: "SSAG_UNKNOWN_45",
+        0x45: "SSAG_GET_IMAGE_ROTATION",
         0xFE: "SSAG_GET_FW_VER",
     },
     0xBB: {0xFE: "DEWHEATER_GET_FW_VER"},
@@ -334,10 +334,22 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
         0x03: "SS2_START_CALIBRATE",
         0x04: "SS2_GET_CALIBRATE_STATUS",
         0x07: "SS2_UNKNOWN_07",
+        # The stored calibration, one slot per request (all zeros when none is stored):
+        # slots 2-3 the calibration star's RA/Dec in degrees, slots 0-1 a position
+        # 1.1 deg from it, slot 4 the image rotation, slot 5 a time (seen on real hardware).
+        0x08: "SS2_GET_CALIBRATION_DATA",
         0x30: "SS2_SET_MOUNT_INFO",
         0x31: "SS2_SET_GEOLOCATION",
         0x32: "SS2_SET_TIME_NOW",
-        0x45: "SS2_UNKNOWN_45",
+        # Asked after every plate solve: the camera image's rotation on the sky, in
+        # degrees. It turns degree for degree with the 0x4b offset (seen on real hardware).
+        0x45: "SS2_GET_IMAGE_ROTATION",
+        # Asked after every plate solve: a status and RA/Dec, the solve shifted by the
+        # calibrated camera-to-telescope offset (fixed in the camera image, same size
+        # and direction as the stored calibration). Read as where the telescope
+        # points; whether the shift goes toward the telescope or away from it is
+        # not confirmed yet (a solve with a star centred in the telescope settles it).
+        0x4B: "SS2_GET_TELESCOPE_POSITION",
         0xFE: "SS2_GET_FW_VER",
     },
     0xBF: {0x10: "LIGHT_LEVEL", 0xFE: "LIGHT_GET_FW_VER"},  # 0x10 both reads and sets

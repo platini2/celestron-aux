@@ -31,8 +31,8 @@ def test_starsense_v2_has_the_autoguider_commands_except_guiding():
 
     v2 = dict(catalog.commands_for(0xBD))
     autoguider = dict(catalog.commands_for(0xB9))
-    assert set(v2) == {c for c in autoguider if c >> 4 != 0x2}  # everything but 0x20 and 0x23
-    assert all(v2[c] == autoguider[c].replace("SSAG_", "SS2_") for c in v2 if c != 0xFE)
+    assert set(v2) - {0x08, 0x4B} == {c for c in autoguider if c >> 4 != 0x2}  # all but 0x20/0x23, plus 0x08, 0x4b
+    assert all(v2[c] == autoguider[c].replace("SSAG_", "SS2_") for c in v2 if c not in (0xFE, 0x08, 0x4B))
     assert catalog.device_name(0xBD) == "Starsense AutoAlign V2"
     assert describe_packet(AuxPacket(0x20, 0xBD, 0x20)).command == "Unknown"  # no guiding on the V2
 
@@ -82,6 +82,35 @@ def test_origin_and_advanced_gt_models():
     assert describe_packet(AuxPacket(0x10, 0x2F, 0x05, bytes.fromhex("1d8a"))).value == "0x1d8a (Origin)"
 
 
+@pytest.mark.parametrize("degrees,text", [
+    (0.0, "0h00m00.00s"), (15.0, "1h00m00.00s"), (297.7, "19h50m48.00s"),
+    (-15.0, "23h00m00.00s"), (360.0, "0h00m00.00s"), (359.99999999, "0h00m00.00s"),
+])
+def test_right_ascension_is_shown_in_hours(degrees, text):
+    from celestron_aux.protocol.units import format_hms
+
+    assert format_hms(degrees) == text
+
+
+EXPECTED_CALIBRATION_LINES = ['Slot 0: offset position RA', 'Slot 0: offset position RA, 19h46m39.86s (296.6661°)', 'Slot 1: offset position Dec', 'Slot 1: offset position Dec, 9°14\'22.29"', 'Slot 2: calibration star RA', 'Slot 2: calibration star RA, 19h50m48.11s (297.7005°)', 'Slot 3: calibration star Dec', 'Slot 3: calibration star Dec, 8°52\'16.34"', 'Slot 4: image rotation', 'Slot 4: image rotation, 47.77°', 'Slot 5: calibration time', 'Slot 5: calibration time, 2026-10-20 00:06 UTC (1792454784)']
+
+
+def test_calibration_slots_are_described_using_the_slot_just_requested():
+    # The real exchange CPWI had with the camera after calibrating on Altair.
+    exchange = [("00", "43945542"), ("01", "4113d518"), ("02", "4394d9a9"), ("03", "410df076"),
+                ("04", "423f14d7"), ("05", "4ed5ad61")]
+    lines = []
+    for slot, reply in exchange:
+        lines.append(describe_packet(AuxPacket(0x20, 0xBD, 0x08, bytes.fromhex(slot))).value)
+        lines.append(describe_packet(AuxPacket(0xBD, 0x20, 0x08, bytes.fromhex(reply))).value)
+    assert lines == EXPECTED_CALIBRATION_LINES
+
+
+def test_an_empty_calibration_slot():
+    describe_packet(AuxPacket(0x20, 0xBD, 0x08, b"\x03"))
+    assert describe_packet(AuxPacket(0xBD, 0x20, 0x08, bytes(4))).value == "Slot 3: calibration star Dec, 0 (empty)"
+
+
 def test_battery_and_wifi_and_gps_names():
     assert describe_packet(AuxPacket(0x0D, 0xB6, 0x18)).command == "BAT_GET_MAX_CURRENT"
     assert describe_packet(AuxPacket(0x0D, 0xB5, 0x10, b"\x01")).command == "WIFI_SET_ENABLE"
@@ -95,6 +124,9 @@ def test_autoguider_is_named_and_its_motor_traffic_uses_motor_names():
     assert (guide.sender, guide.command) == ("Starsense AutoGuider", "MTR_AUX_GUIDE")
     assert describe_packet(AuxPacket(0x10, 0xB9, 0x26)).command == "MTR_AUX_GUIDE"  # the motor's reply
     assert describe_packet(AuxPacket(0xB9, 0x0D, 0x07, b"\x01")).command == "SSAG_UNKNOWN_07"
+    assert describe_packet(AuxPacket(0x20, 0xBD, 0x45)).command == "SS2_GET_IMAGE_ROTATION"
+    assert describe_packet(AuxPacket(0x20, 0xBD, 0x4B)).command == "SS2_GET_TELESCOPE_POSITION"
+    assert describe_packet(AuxPacket(0x0D, 0xB9, 0x45)).command == "SSAG_GET_IMAGE_ROTATION"
 
 
 @pytest.mark.parametrize("command,name", [
@@ -155,20 +187,31 @@ def test_decoded_payloads_keep_their_hex_too():
     (0x0D, 0xB5, 0x10, "00", "Off"),
     # StarSense AutoGuider, using published examples
     (0xB9, 0x0D, 0x02, "000000000000000000", "In progress"),
-    (0xB9, 0x0D, 0x02, "01402d57e13f9a7ee0", "Solved, RA 155\N{DEGREE SIGN}11'05.90\", Dec 69\N{DEGREE SIGN}09'20.99\""),
-    (0x0D, 0xB9, 0x03, "406ef02e3eab4c8e", "RA 213\N{DEGREE SIGN}54'30.97\", Dec 19\N{DEGREE SIGN}10'09.69\""),
+    (0xB9, 0x0D, 0x02, "01402d57e13f9a7ee0", "Solved, RA 10h20m44.39s, Dec 69\N{DEGREE SIGN}09'20.99\""),
+    (0x0D, 0xB9, 0x03, "406ef02e3eab4c8e", "RA 14h15m38.06s, Dec 19\N{DEGREE SIGN}10'09.69\""),
     (0xB9, 0x0D, 0x04, "01fe6efac0", "Solved, x 65134, y 64192"),
     (0x0D, 0xB9, 0x20, "69", "Enabled, flags 0x69"),
     (0x0D, 0xB9, 0x20, "00", "Disabled"),
-    (0x0D, 0xB9, 0x30, "040128630000", "Model 0x04, alt-az, AZM firmware 40.99"),
+    (0x0D, 0xB9, 0x30, "040128630000", "Model 0x04, mount mode 1, AZM firmware 40.99"),
     (0x0D, 0xB9, 0x31, "4222cb4bc295cc2d", "Lat 40.6985, Lon -74.8988"),
     (0x0D, 0xB9, 0x32, "2c892d13", "2023-09-05 00:04:35 UTC"),
     # StarSense Camera V2, captured from CPWI on a CPC mount
-    (0x20, 0xBD, 0x30, "110106130000", "Model 0x11 (CPC Deluxe family), alt-az, AZM firmware 6.19"),
-    (0x20, 0xBD, 0x30, "0d0007020000", "Model 0x0d (CGE Pro family), equatorial, AZM firmware 7.2"),
+    (0x20, 0xBD, 0x30, "110106130000", "Model 0x11 (CPC Deluxe family), mount mode 1, AZM firmware 6.19"),
+    (0x20, 0xBD, 0x30, "0d0007020000", "Model 0x0d (CGE Pro family), mount mode 0, AZM firmware 7.2"),
     (0x20, 0xBD, 0x31, "c2080001c2680000", "Lat -34.0000, Lon -58.0000"),
     (0x20, 0xBD, 0x32, "3267c1ef", "2026-10-18 17:44:15 UTC"),
-    (0xBD, 0x20, 0x02, "01402d57e13f9a7ee0", "Solved, RA 155\N{DEGREE SIGN}11'05.90\", Dec 69\N{DEGREE SIGN}09'20.99\""),
+    (0xBD, 0x20, 0x02, "01402d57e13f9a7ee0", "Solved, RA 10h20m44.39s, Dec 69\N{DEGREE SIGN}09'20.99\""),
+    # a real StarSense AutoAlign V2 session: CPWI listed these as RA 18h30m, 20h03m, 0h13m, 22h54m
+    (0xBD, 0x20, 0x02, "01409b127fbd82e78f", "Solved, RA 18h30m37.39s, Dec -3\N{DEGREE SIGN}39'44.08\""),
+    (0xBD, 0x20, 0x02, "0140bfea033c513bf0", "Solved, RA 22h54m29.01s, Dec 0\N{DEGREE SIGN}43'54.13\""),
+    (0xBD, 0x20, 0x4B, "01409a7c39bd6a407f", "Solved, RA 18h26m25.14s, Dec -3\N{DEGREE SIGN}16'36.37\""),
+    (0xBD, 0x20, 0x02, "040000000000000000", "Failed (status 4)"),  # a real failed solve
+    (0xB9, 0x0D, 0x04, "0400000000", "Failed (status 4)"),
+    (0xBD, 0x20, 0x02, "070000000000000000", "Status 7, RA 0h00m00.00s, Dec 0\N{DEGREE SIGN}00'00.00\""),  # unknown: shown as is
+    (0xBD, 0x20, 0x45, "4249ac41", "Rotation 50.42\N{DEGREE SIGN}"),   # real V2 replies
+    (0xBD, 0x20, 0x45, "423e1c24", "Rotation 47.53\N{DEGREE SIGN}"),
+    (0xB9, 0x0D, 0x45, "42e1790e", "Rotation 112.74\N{DEGREE SIGN}"),  # an AutoGuider example
+    (0x20, 0xBD, 0x03, "40a6446e3e1e8c37", "RA 19h50m48.11s, Dec 8\N{DEGREE SIGN}52'16.34\""),  # Altair
     (0xBD, 0x20, 0x04, "01fe6efac0", "Solved, x 65134, y 64192"),
     (0xB9, 0x0D, 0xFE, "230a1e", "35.10.30"),
 ])

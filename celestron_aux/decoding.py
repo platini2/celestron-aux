@@ -16,7 +16,7 @@ from typing import Callable, Dict, Iterable, Mapping, Optional, Tuple
 from . import catalog
 from .catalog import Addr, Cmd
 from .protocol import AuxPacket
-from .protocol.units import bam_to_degrees, format_dms, format_version
+from .protocol.units import bam_to_degrees, format_dms, format_hms, format_version
 
 PayloadDecoder = Callable[[bytes, bool], str]
 
@@ -242,6 +242,7 @@ def _starsense_status(data: bytes, is_reply: bool) -> str:
 # time is seconds since 2000-01-01 UTC.
 
 _SSAG = [Addr.STARSENSE_AUTOGUIDER]
+_IN_PROGRESS, _SOLVED, _FAILED = 0, 1, 4  # status byte of plate solves and calibrations; 4 seen on real failures
 _SSAG_AND_V2 = [Addr.STARSENSE_AUTOGUIDER, Addr.STARSENSE_CAMERA_V2]
 _EPOCH_2000 = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
@@ -249,14 +250,17 @@ _EPOCH_2000 = datetime(2000, 1, 1, tzinfo=timezone.utc)
 def _ra_dec(data: bytes) -> str:
     _require(data, 8)
     ra, dec = (math.degrees(value) for value in struct.unpack(">ff", data[:8]))
-    return f"RA {format_dms(ra % 360)}, Dec {format_dms(dec)}"
+    return f"RA {format_hms(ra)}, Dec {format_dms(dec)}"
 
 
 @_decodes(_SSAG_AND_V2, [0x02])
+@_decodes([Addr.STARSENSE_CAMERA_V2], [0x4B])  # same layout: a status, then RA/Dec
 def _ssag_plate_status(data: bytes, is_reply: bool) -> str:
-    if data[0] == 0:
+    if data[0] == _IN_PROGRESS:
         return "In progress"
-    return f"Solved, {_ra_dec(data[1:])}" if data[0] == 1 else f"Status {data[0]}, {_ra_dec(data[1:])}"
+    if data[0] == _FAILED:
+        return f"Failed (status {data[0]})"  # no position: the camera sends zeros
+    return f"Solved, {_ra_dec(data[1:])}" if data[0] == _SOLVED else f"Status {data[0]}, {_ra_dec(data[1:])}"
 
 
 @_decodes(_SSAG_AND_V2, [0x03])
@@ -266,8 +270,10 @@ def _ssag_start_calibrate(data: bytes, is_reply: bool) -> str:
 
 @_decodes(_SSAG_AND_V2, [0x04])
 def _ssag_calibrate_status(data: bytes, is_reply: bool) -> str:
-    if data[0] == 0:
+    if data[0] == _IN_PROGRESS:
         return "In progress"
+    if data[0] == _FAILED:
+        return f"Failed (status {data[0]})"
     _require(data, 5)
     state = "Solved" if data[0] == 1 else f"Status {data[0]}"
     return f"{state}, x {_uint(data, 1, 3)}, y {_uint(data, 3, 5)}"
@@ -278,14 +284,71 @@ def _ssag_set_guiding(data: bytes, is_reply: bool) -> str:
     return "Disabled" if data[0] == 0 else f"Enabled, flags 0x{data[0]:02x}"
 
 
+@_decodes(_SSAG_AND_V2, [0x45])
+def _ssag_image_rotation(data: bytes, is_reply: bool) -> str:
+    # The angle of the camera image on the sky, as a big-endian float32 in degrees.
+    _require(data, 4)
+    return f"Rotation {struct.unpack('>f', data[:4])[0]:.2f}\N{DEGREE SIGN}"
+
+
+# The stored calibration (0x08), one slot per request. What each slot holds was
+# worked out from a real calibration on Altair; slots 0-1 are a position 1.1 deg
+# from the calibration star whose exact meaning is not settled.
+_CALIBRATION_SLOTS = {
+    0: "offset position RA",
+    1: "offset position Dec",
+    2: "calibration star RA",
+    3: "calibration star Dec",
+    4: "image rotation",
+    5: "calibration time",
+}
+_RA_SLOTS, _DEC_SLOTS, _ROTATION_SLOT, _TIME_SLOT = (0, 2), (1, 3), 4, 5
+
+# A reply does not say which slot it holds, so the decoder remembers the slot that
+# was requested last. CPWI asks for one slot and gets its reply before the next.
+_last_calibration_slot: Optional[int] = None
+
+
+def _slot_name(slot: int) -> str:
+    return f"Slot {slot}: {_CALIBRATION_SLOTS.get(slot, 'unknown')}"
+
+
+@_decodes([Addr.STARSENSE_CAMERA_V2], [0x08])
+def _ss2_calibration_data(data: bytes, is_reply: bool) -> str:
+    global _last_calibration_slot
+    if not is_reply:
+        _last_calibration_slot = data[0]
+        return _slot_name(data[0])
+    _require(data, 4)
+    value = struct.unpack(">f", data[:4])[0]
+    slot = _last_calibration_slot
+    if value == 0:
+        text = "0 (empty)"
+    elif slot == _TIME_SLOT or (slot is None and value > 1e9):
+        # Unix seconds, stored with a resolution of about 2 minutes. On real hardware
+        # it read exactly one day after the calibration.
+        when = datetime.fromtimestamp(value, timezone.utc)
+        text = f"{when:%Y-%m-%d %H:%M} UTC ({value:.0f})"
+    elif slot in _RA_SLOTS:
+        text = f"{format_hms(value)} ({value:.4f}\N{DEGREE SIGN})"
+    elif slot in _DEC_SLOTS:
+        text = format_dms(value)
+    elif slot == _ROTATION_SLOT:
+        text = f"{value:.2f}\N{DEGREE SIGN}"
+    else:
+        text = f"{value:.6g}"
+    return text if slot is None else f"{_slot_name(slot)}, {text}"
+
+
 @_decodes(_SSAG_AND_V2, [0x30])
 def _ssag_mount_info(data: bytes, is_reply: bool) -> str:
     # The model byte is the first byte of the MTR_GET_MODEL id, so it names a mount family.
+    # The second byte is a mounting flag whose values are not known yet: one source reads 1
+    # as alt-az, but a CPC on an equatorial wedge also sends 1. So it is shown as is.
     _require(data, 4)
     family = catalog.MOUNT_FAMILIES.get(data[0])
     model = f"Model 0x{data[0]:02x}" + (f" ({family} family)" if family else "")
-    mounting = {0: "equatorial", 1: "alt-az"}.get(data[1], f"mounting {data[1]}")
-    return f"{model}, {mounting}, AZM firmware {data[2]}.{data[3]}"
+    return f"{model}, mount mode {data[1]}, AZM firmware {data[2]}.{data[3]}"
 
 
 @_decodes(_SSAG_AND_V2, [0x31])

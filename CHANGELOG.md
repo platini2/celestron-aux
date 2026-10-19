@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.0.2
+
+### Changed
+
+- Right ascension in StarSense plate-solve and calibration values is shown in
+  hours, minutes and seconds (e.g. RA 19h50m48.11s), as in CPWI and star
+  catalogs, instead of degrees. Dec stays in degrees.
+- The mounting flag in StarSense mount info (0x30) is shown as "mount mode N"
+  instead of "alt-az" / "equatorial": a CPC on an equatorial wedge sends 1,
+  which another source reads as alt-az, so its meaning is not settled.
+
+- StarSense plate-solve and calibration status 4 is shown as "Failed (status
+  4)" instead of a position of 0h/0 deg: real failed solves send status 4 with
+  zeros.
+
+### Added
+
+- StarSense command 0x45 named `SS2_GET_IMAGE_ROTATION` (AutoAlign V2) and
+  `SSAG_GET_IMAGE_ROTATION` (AutoGuider), decoded as an angle, e.g.
+  "Rotation 47.86 deg": the camera image's rotation on the sky. Across eight
+  real plate solves it turned degree for degree with the 0x4b offset
+  (correlation 0.993).
+- StarSense AutoAlign V2 command 0x08 `SS2_GET_CALIBRATION_DATA`: the stored
+  calibration, read one slot at a time. Requests and replies name the slot
+  (offset position RA/Dec, calibration star RA/Dec, image rotation,
+  calibration time) and replies show its value in the matching format, e.g.
+  "Slot 2: calibration star RA, 19h50m48.11s (297.7005 deg)"; "0 (empty)" when
+  nothing is stored. Replies carry no slot number, so the slot is taken from
+  the request just before.
+- StarSense AutoAlign V2 command 0x4b `SS2_GET_TELESCOPE_POSITION`, decoded
+  like a plate solve (status, RA/Dec): the solve shifted by the calibrated
+  camera-to-telescope offset, read as where the telescope points. The
+  direction of the shift is not confirmed yet.
+
 ## 1.0.1
 
 ### Changed
