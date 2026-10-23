@@ -60,6 +60,18 @@ def test_gps_emulator_answers_only_when_enabled():
     assert len(sent) == 3
 
 
+def test_gps_emulator_reports_satellites_and_its_hardware_version_like_a_real_gps():
+    from celestron_aux.decoding import describe_packet
+
+    sent = []
+    gps = GpsEmulator(sent.append)
+    gps.enable(51.4779, -0.0015)
+    gps(event(AuxPacket(0x0D, 0xB0, 0x07)))  # GPS_GET_SAT_INFO: in view, used
+    gps(event(AuxPacket(0x0D, 0xB0, 0x55)))  # GPS_GET_HW_VER
+    assert [p.data.hex() for p in sent] == ["0c09", "ab"]
+    assert [describe_packet(p).value for p in sent] == ["12 - 9", "0xab (Celestron GPS)"]
+
+
 def test_csv_rows_for_each_frame_type(tmp_path):
     logger = CsvLogger()
     path = tmp_path / "log.csv"

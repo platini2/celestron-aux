@@ -1,0 +1,11 @@
+# CPWI's requests to a real NexStar SLT's motors (0x10, 0x11) and the motors' replies,
+# from one capture: request-packet-hex reply-payload-hex (- for an empty payload).
+3b032010fecf 0512
+3b032011fece 0512
+3b03201005c8 0783
+3b032010418c 00
+3b032011418b 00
+3b032010fcd1 00
+3b032011fcd0 00
+3b0420102400a8 01
+3b0420112400a7 01

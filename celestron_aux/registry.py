@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .bus import BusEvent
 from .catalog import Addr, Cmd
 from .protocol import AuxPacket
 from .protocol.units import format_version
+
+
+EMULATED = " (emulated)"
 
 
 class DeviceRegistry:
@@ -18,6 +21,7 @@ class DeviceRegistry:
         self._lock = threading.Lock()
         self._devices: Dict[int, str] = {}
         self._mount_model: Optional[int] = None
+        self._emulated: Set[int] = set()  # addresses answered by this program; kept across scans
 
     def __call__(self, event: BusEvent) -> None:
         packet = event.frame
@@ -30,9 +34,31 @@ class DeviceRegistry:
                 self._mount_model = int.from_bytes(packet.data, "big")
 
     def add(self, address: int, version: str) -> None:
-        """Record a device; the first version seen for an address is kept."""
+        """Record a device; the first version seen for an address is kept.
+
+        Devices this program emulates are labelled as such, even when they are
+        found again by a scan.
+        """
         with self._lock:
+            if address in self._emulated and not version.endswith(EMULATED):
+                version += EMULATED
             self._devices.setdefault(address, version)
+
+    def set_mount_model(self, model: Optional[int]) -> None:
+        with self._lock:
+            self._mount_model = model
+
+    def is_emulated(self, address: int) -> bool:
+        with self._lock:
+            return address in self._emulated
+
+    def set_emulated(self, address: int, emulated: bool) -> None:
+        with self._lock:
+            (self._emulated.add if emulated else self._emulated.discard)(address)
+
+    def remove(self, address: int) -> None:
+        with self._lock:
+            self._devices.pop(address, None)
 
     def clear(self) -> None:
         with self._lock:

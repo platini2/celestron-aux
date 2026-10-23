@@ -41,6 +41,21 @@ def format_hms(degrees: float) -> str:
     return f"{hours}h{minutes:02d}m{remainder / 100:05.2f}s"
 
 
+def parse_version(text: str) -> bytes:
+    """The reverse of format_version: "11.1" -> 2 bytes, "7.16.9300" -> 4 bytes."""
+    parts = text.strip().split(".")
+    try:
+        numbers = [int(part) for part in parts]
+    except ValueError:
+        numbers = []
+    if len(numbers) == 2 and all(0 <= n <= 255 for n in numbers):
+        return bytes(numbers)
+    if len(numbers) == 3 and all(0 <= n <= 255 for n in numbers[:2]) and 0 <= numbers[2] <= 0xFFFF:
+        return bytes(numbers[:2]) + numbers[2].to_bytes(2, "big")
+    raise ValueError("a version is major.minor or major.minor.build, e.g. 11.1 or 7.16.9300 "
+                     "(major and minor 0-255, build 0-65535)")
+
+
 def format_version(data: bytes) -> str:
     """Format a firmware version reply: ``major.minor`` or ``major.minor.build``."""
     if len(data) < 4:

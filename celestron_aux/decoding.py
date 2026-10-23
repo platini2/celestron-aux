@@ -209,7 +209,7 @@ def _gps_time(data: bytes, is_reply: bool) -> str:
 @_decodes([Addr.GPS], [0x55])
 def _gps_hardware_version(data: bytes, is_reply: bool) -> str:
     # 0xab on Celestron GPS units (Paquette: the Motorola GPS module).
-    label = {0xAB: "Celestron GPS", 0xEB: "non-Celestron GPS"}.get(data[0])
+    label = {0xAB: "Celestron GPS"}.get(data[0])
     return f"0x{data[0]:02x}" + (f" ({label})" if label else "")
 
 
@@ -237,7 +237,7 @@ def _starsense_status(data: bytes, is_reply: bool) -> str:
 # --- StarSense AutoGuider and StarSense AutoAlign V2 ---------------------------
 # The V2 uses the AutoGuider's commands except guiding (0x2x), so the decoders
 # are shared. Payload layouts from community reverse engineering, checked against
-# published examples and against captures from a real StarSense AutoAlign V2: RA/Dec are two big-endian
+# published examples and captures from a real StarSense AutoAlign V2: RA/Dec are two big-endian
 # float32 in radians, the location two big-endian float32 in degrees, and the
 # time is seconds since 2000-01-01 UTC.
 
@@ -282,6 +282,11 @@ def _ssag_calibrate_status(data: bytes, is_reply: bool) -> str:
 @_decodes(_SSAG, [0x20])
 def _ssag_set_guiding(data: bytes, is_reply: bool) -> str:
     return "Disabled" if data[0] == 0 else f"Enabled, flags 0x{data[0]:02x}"
+
+
+@_decodes([Addr.STARSENSE_CAMERA_V2], [0x07])
+def _ss2_is_calibrated(data: bytes, is_reply: bool) -> str:
+    return {0: "No", 1: "Yes"}.get(data[0], str(data[0])) if is_reply else data.hex()
 
 
 @_decodes(_SSAG_AND_V2, [0x45])

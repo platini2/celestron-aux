@@ -120,6 +120,10 @@ class Repl:
             _Command("ss", "toggle saving StarSense images", self._toggle_images),
             _Command("4", "trigger a StarSense capture", self._starsense_capture),
             _Command("3", "send the sample StarSense star list (testing)", self._send_sample),
+            _Command("sv", "toggle StarSense AutoAlign V2 emulation", lambda: self._toggle_emulation("starsense")),
+            _Command("ef", "toggle focuser emulation", lambda: self._toggle_emulation("focuser")),
+            _Command("ed", "toggle dew heater controller emulation", lambda: self._toggle_emulation("dew")),
+            _Command("s1", "toggle StarSense AutoAlign (V1) emulation", lambda: self._toggle_emulation("starsense1")),
             _Command("r", "reset the packet timer", self._reset_clock),
             _Command("o", "show the out-of-frame byte counter", self._out_of_frame),
             _Command("h", "show this help", self._help),
@@ -295,6 +299,22 @@ class Repl:
             return False
         self.app.start_starsense_capture()
         self._write("StarSense capture started (takes about 8 seconds).")
+        return False
+
+    def _toggle_emulation(self, kind: str) -> bool:
+        names = {"starsense": "StarSense AutoAlign V2", "focuser": "focuser", "dew": "dew heater controller",
+                 "starsense1": "StarSense AutoAlign (V1)"}
+        emulator = self.app.emulators[kind]
+        if emulator.enabled:
+            self.app.disable_emulation(kind)
+            self._write(f"{names[kind].capitalize()} emulation off.")
+            return False
+        try:
+            self.app.enable_emulation(kind)
+        except ValueError as exc:
+            self._write(f"Emulation not started: {exc}.")
+            return False
+        self._write(f"Emulating a {names[kind]}.")
         return False
 
     def _send_sample(self) -> bool:

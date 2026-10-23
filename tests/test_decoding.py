@@ -32,7 +32,7 @@ def test_starsense_v2_has_the_autoguider_commands_except_guiding():
     v2 = dict(catalog.commands_for(0xBD))
     autoguider = dict(catalog.commands_for(0xB9))
     assert set(v2) - {0x08, 0x4B} == {c for c in autoguider if c >> 4 != 0x2}  # all but 0x20/0x23, plus 0x08, 0x4b
-    assert all(v2[c] == autoguider[c].replace("SSAG_", "SS2_") for c in v2 if c not in (0xFE, 0x08, 0x4B))
+    assert all(v2[c] == autoguider[c].replace("SSAG_", "SS2_") for c in v2 if c not in (0xFE, 0x07, 0x08, 0x4B))
     assert catalog.device_name(0xBD) == "Starsense AutoAlign V2"
     assert describe_packet(AuxPacket(0x20, 0xBD, 0x20)).command == "Unknown"  # no guiding on the V2
 
@@ -183,7 +183,7 @@ def test_decoded_payloads_keep_their_hex_too():
     (0x12, 0x0D, 0x13, "ff", "255 - Done"),
     (0x12, 0x0D, 0x2C, "000003e8000f4240", "Limits 1000 to 1000000"),
     (0xB0, 0x0D, 0x55, "ab", "0xab (Celestron GPS)"),
-    (0xB0, 0x0D, 0x55, "eb", "0xeb (non-Celestron GPS)"),
+    (0xB0, 0x0D, 0x55, "eb", "0xeb"),  # an unknown hardware version: shown as is
     (0x0D, 0xB5, 0x10, "00", "Off"),
     # StarSense AutoGuider, using published examples
     (0xB9, 0x0D, 0x02, "000000000000000000", "In progress"),
@@ -208,6 +208,8 @@ def test_decoded_payloads_keep_their_hex_too():
     (0xBD, 0x20, 0x02, "040000000000000000", "Failed (status 4)"),  # a real failed solve
     (0xB9, 0x0D, 0x04, "0400000000", "Failed (status 4)"),
     (0xBD, 0x20, 0x02, "070000000000000000", "Status 7, RA 0h00m00.00s, Dec 0\N{DEGREE SIGN}00'00.00\""),  # unknown: shown as is
+    (0xBD, 0x20, 0x07, "00", "No"),   # real replies: before any calibration, and after
+    (0xBD, 0x20, 0x07, "01", "Yes"),
     (0xBD, 0x20, 0x45, "4249ac41", "Rotation 50.42\N{DEGREE SIGN}"),   # real V2 replies
     (0xBD, 0x20, 0x45, "423e1c24", "Rotation 47.53\N{DEGREE SIGN}"),
     (0xB9, 0x0D, 0x45, "42e1790e", "Rotation 112.74\N{DEGREE SIGN}"),  # an AutoGuider example

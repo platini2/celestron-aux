@@ -52,6 +52,14 @@ POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
     "/api/send": WebApi.send,
     "/api/starsense/capture": WebApi.starsense_capture,
     "/api/starsense/sample": WebApi.starsense_sample,
+    "/api/starsense/emulate": WebApi.starsense_emulation,
+    "/api/emulate": WebApi.emulate,
+    "/api/emulate/version": WebApi.emulated_version,
+    "/api/wifi": WebApi.wifi,
+    "/api/mount_emulator": WebApi.mount_emulator,
+    "/api/dew": WebApi.dew_conditions,
+    "/api/dew/control": WebApi.dew_control,
+    "/api/starsense/solve": WebApi.plate_solve,
     "/api/clock/reset": WebApi.reset_clock,
     "/api/motion/move": WebApi.move,
     "/api/motion/stop": WebApi.stop_motion,
@@ -144,6 +152,8 @@ def _make_handler(server: WebServer) -> type:
                 self._send_json(HTTPStatus.OK, server.api.state())
             elif url.path == "/api/ports":
                 self._ports()
+            elif url.path == "/api/mount_emulator/status":
+                self._send_json(HTTPStatus.OK, server.api.mount_status())
             elif url.path == "/api/discoveries":
                 self._send_json(HTTPStatus.OK, server.api.discoveries())
             elif url.path == "/api/catalog":
@@ -161,13 +171,13 @@ def _make_handler(server: WebServer) -> type:
             try:
                 self._send_json(HTTPStatus.OK, server.api.ports())
             except ApiError as exc:
-                self._send_json(exc.status, {"error": exc.message})
+                self._send_json(exc.status, {"error": exc.message, **exc.extra})
 
         def _download(self, kind: str) -> None:
             try:
                 name, content_type, body = server.api.download(kind)
             except ApiError as exc:
-                self._send_json(exc.status, {"error": exc.message})
+                self._send_json(exc.status, {"error": exc.message, **exc.extra})
                 return
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type)
@@ -234,7 +244,7 @@ def _make_handler(server: WebServer) -> type:
                 else:
                     result = route(server.api, self._read_json())
             except ApiError as exc:
-                self._send_json(exc.status, {"error": exc.message})
+                self._send_json(exc.status, {"error": exc.message, **exc.extra})
                 return
             except Exception:
                 log.exception("request %s failed", self.path)

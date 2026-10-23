@@ -16,6 +16,9 @@ from .protocol import AuxPacket
 from .protocol.units import degrees_to_bam
 
 FIRMWARE_VERSION = bytes((11, 1))
+GPS_GET_SAT_INFO, GPS_GET_HW_VER = 0x07, 0x55
+SATELLITES = (12, 9)        # in view, used for the fix: a good fix, as a real receiver reports them
+HARDWARE_VERSION = 0xAB     # what Celestron GPS units answer to 0x55
 
 
 def validate_position(latitude: float, longitude: float) -> None:
@@ -41,6 +44,7 @@ class GpsEmulator:
         self._now = now
         self._lock = threading.Lock()
         self._position: Optional[Tuple[float, float]] = None
+        self.versions = {Addr.GPS: FIRMWARE_VERSION}  # can be changed while running
 
     @property
     def enabled(self) -> bool:
@@ -87,8 +91,12 @@ class GpsEmulator:
         latitude, longitude = position
         if command in (Cmd.GPS_TIME_VALID, Cmd.GPS_LINKED):
             return b"\x01"
+        if command == GPS_GET_SAT_INFO:
+            return bytes(SATELLITES)
+        if command == GPS_GET_HW_VER:
+            return bytes((HARDWARE_VERSION,))
         if command == Cmd.GET_VERSION:
-            return FIRMWARE_VERSION
+            return self.versions[Addr.GPS]
         if command == Cmd.GPS_GET_LAT:
             return degrees_to_bam(latitude)
         if command == Cmd.GPS_GET_LONG:

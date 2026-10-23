@@ -12,6 +12,8 @@ panel off stops it.
 from __future__ import annotations
 
 import logging
+import math
+import struct
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -317,3 +319,209 @@ def _angle(degrees: Optional[float]) -> Optional[Dict[str, Any]]:
     if degrees is None:
         return None
     return {"degrees": round(degrees, 6), "dms": format_dms(degrees)}
+
+
+# --- dew heater controller -------------------------------------------------------------
+
+def _signed_milli(data: bytes) -> float:
+    return int.from_bytes(data, "big", signed=True) / 1000
+
+
+class DewMonitor(DeviceMonitor):
+    """Readings of a dew heater controller (0x17), and its heater, 12 V and LED controls.
+
+    The outputs are switched with 0x14: ports 0 and 1 are taken to be the heaters and
+    port 2 the 12 V output (only port 2 is confirmed). The controller does not report a
+    heater's on/off state, so the last state commanded on the bus is shown.
+    """
+
+    address = Addr.DEW_HEATER
+    interval = 2.0
+    CHANNELS = 2
+    PORT_12V = 2
+
+    def __init__(self, bus: AuxBus, **kwargs: Any) -> None:
+        super().__init__(bus, **kwargs)
+        self._power: Optional[Tuple[float, float]] = None           # volts, amps
+        self._environment: Optional[Tuple[float, float, int]] = None  # temperature, dew point, humidity
+        self._heaters: Dict[int, Dict[str, Any]] = {}
+        self._outputs: Dict[int, bool] = {}  # port -> on, as last commanded
+        self._port_12v: Optional[bool] = None
+        self._led: Optional[int] = None
+
+    def requests(self) -> List[Tuple[int, bytes]]:
+        return [(0x00, b""), (0x18, b""), (0x12, b"\x00"), (0x12, b"\x01"), (0x11, bytes((self.PORT_12V,))), (0x02, b"")]
+
+    def __call__(self, event: BusEvent) -> None:
+        packet = event.frame
+        # Also note outputs switched by anyone (CPWI, the hand controller): the controller never reports them.
+        if isinstance(packet, AuxPacket) and packet.destination == self.address and packet.command == 0x14 \
+                and len(packet.data) >= 2:
+            with self._lock:
+                self._outputs[packet.data[0]] = bool(packet.data[1])
+            return
+        super().__call__(event)
+
+    def update(self, command: int, data: bytes) -> bool:
+        if command == 0x00 and len(data) >= 4:
+            self._power = (_signed_milli(data[0:2]), _signed_milli(data[2:4]))
+        elif command == 0x18 and len(data) >= 9:
+            self._environment = (_signed_milli(data[0:4]), _signed_milli(data[4:8]), data[8])
+        elif command == 0x12 and len(data) >= 10:
+            channel = data[0] - 1
+            self._heaters[channel] = {"automatic": bool(data[1]), "power": round(data[2] / 2.55),
+                                      "amps": _signed_milli(data[3:5]), "aggression": data[5],
+                                      "temperature": _signed_milli(data[6:10])}
+        elif command == 0x11 and len(data) >= 2 and data[0] & 0xF0 == 0x10:
+            self._port_12v = bool(data[1])
+        elif command in (0x02, 0x20) and data:
+            self._led = data[0]
+        else:
+            return False
+        return True
+
+    def values(self) -> Dict[str, Any]:
+        heaters = []
+        for channel in range(self.CHANNELS):
+            heater = dict(self._heaters.get(channel, {}))
+            heater["on"] = self._outputs.get(channel)
+            heaters.append(heater)
+        port_12v = self._outputs.get(self.PORT_12V, self._port_12v)
+        return {
+            "voltage": None if self._power is None else self._power[0],
+            "current": None if self._power is None else self._power[1],
+            "ambient": None if self._environment is None else self._environment[0],
+            "dew_point": None if self._environment is None else self._environment[1],
+            "humidity": None if self._environment is None else self._environment[2],
+            "heaters": heaters, "port_12v": port_12v, "led": self._led,
+        }
+
+    # --- controls --------------------------------------------------------------------
+
+    def _command(self, command: int, data: bytes) -> None:
+        if not self._bus.send(AuxPacket(Addr.SCANNER, self.address, command, data)):
+            raise MotionRefused("The command could not be sent.")
+        with self._lock:
+            self._next_poll = 0.0  # show the result promptly
+
+    def set_output(self, port: int, on: bool) -> None:
+        """Switch a heater (0, 1) or the 12 V output (2) on or off."""
+        if port not in (0, 1, self.PORT_12V):
+            raise ValueError("port must be 0 or 1 (heaters) or 2 (12 V output)")
+        self._command(0x14, bytes((port, 1 if on else 0)))
+
+    def set_automatic(self, channel: int, aggression: int) -> None:
+        if channel not in (0, 1) or not 1 <= aggression <= 10:
+            raise ValueError("choose heater 1 or 2 and an aggressiveness of 1 to 10")
+        self._command(0x16, bytes((channel, aggression)))
+
+    def set_manual(self, channel: int, percent: float) -> None:
+        if channel not in (0, 1) or not 0 <= percent <= 100:
+            raise ValueError("choose heater 1 or 2 and a power of 0 to 100 %")
+        self._command(0x17, bytes((channel, round(percent * 2.55))))
+
+    def set_led(self, brightness: int) -> None:
+        if not 0 <= brightness <= 255:
+            raise ValueError("the LED brightness is 0 to 255")
+        self._command(0x20, bytes((brightness,)))
+
+
+# --- StarSense plate solving --------------------------------------------------------------
+
+class PlateSolver(DeviceMonitor):
+    """Plate solves on a StarSense AutoAlign V2 (0xbd) or AutoGuider (0xb9), on request.
+
+    Start a solve (0x01), ask how it is going (0x02) twice a second until it is solved
+    or has failed, then ask for the telescope position (0x4b, V2 only) and the image
+    rotation (0x45). Never polls on its own.
+    """
+
+    address = Addr.STARSENSE_CAMERA_V2
+    CAMERAS = (Addr.STARSENSE_CAMERA_V2, Addr.STARSENSE_AUTOGUIDER)
+    CHECK_EVERY = 0.5
+    GIVE_UP_AFTER = 40.0
+
+    def __init__(self, bus: AuxBus, **kwargs: Any) -> None:
+        super().__init__(bus, **kwargs)
+        self._camera = self.address
+        self._solving_since: Optional[float] = None
+        self._next_check = 0.0
+        self._result: Dict[str, Any] = {}
+        self._calibrated: Optional[bool] = None
+        self._pending: List[Tuple[int, bytes]] = []  # requests to send from the monitor thread
+
+    def requests(self) -> List[Tuple[int, bytes]]:
+        return []
+
+    def __call__(self, event: BusEvent) -> None:
+        packet = event.frame
+        if not isinstance(packet, AuxPacket) or packet.source not in self.CAMERAS or not packet.data:
+            return
+        with self._lock:
+            if self.update(packet.command, packet.data):
+                self._updated = self._clock()
+
+    def update(self, command: int, data: bytes) -> bool:
+        if command == 0x02 and len(data) >= 9:
+            status = data[0]
+            if status == 0:
+                return True  # still solving
+            self._solving_since = None
+            if status == 1:
+                ra, dec = (math.degrees(v) for v in struct.unpack(">ff", data[1:9]))
+                self._result = {"status": "Solved", "ra": ra % 360, "dec": dec}
+                self._send_later([(0x4B, b""), (0x45, b"")])
+            else:
+                self._result = {"status": "Failed" if status == 4 else f"Status {status}"}
+            return True
+        if command == 0x4B and len(data) >= 9 and data[0] == 1:
+            ra, dec = (math.degrees(v) for v in struct.unpack(">ff", data[1:9]))
+            self._result.update(telescope_ra=ra % 360, telescope_dec=dec)
+            return True
+        if command == 0x45 and len(data) >= 4:
+            self._result["rotation"] = struct.unpack(">f", data[:4])[0]
+            return True
+        if command == 0x07:
+            self._calibrated = bool(data[0])
+            return True
+        return False
+
+    def _send_later(self, requests: List[Tuple[int, bytes]]) -> None:
+        self._pending += requests  # called under the lock, from a bus listener: sent from on_tick
+
+    def values(self) -> Dict[str, Any]:
+        return {"camera": self._camera, "solving": self._solving_since is not None,
+                "calibrated": self._calibrated, **self._result}
+
+    def solve(self, camera: int) -> None:
+        """Start a plate solve on that camera (0xbd or 0xb9)."""
+        if camera not in self.CAMERAS:
+            raise ValueError("no StarSense camera at that address")
+        with self._lock:
+            self._camera = camera
+            self._result = {"status": "Solving"}
+            self._solving_since = self._clock()
+            self._next_check = self._clock() + self.CHECK_EVERY
+        for command in (0x07, 0x01):
+            if not self._bus.send(AuxPacket(Addr.SCANNER, camera, command, b"")):
+                with self._lock:
+                    self._solving_since, self._result = None, {}
+                raise MotionRefused("The plate solve could not be started.")
+
+    def on_tick(self, now: float) -> None:
+        with self._lock:
+            pending, self._pending = self._pending, []
+            since = self._solving_since
+            check = since is not None and now >= self._next_check
+            if since is not None and check:
+                if now - since > self.GIVE_UP_AFTER:
+                    self._solving_since, self._result = None, {"status": "No answer"}
+                    check = False
+                else:
+                    self._next_check = now + self.CHECK_EVERY
+            camera = self._camera
+        requests = pending + ([(0x02, b"")] if check else [])
+        for command, data in requests:
+            if command == 0x4B and camera != Addr.STARSENSE_CAMERA_V2:
+                continue  # the AutoGuider has no telescope position command
+            self._bus.send(AuxPacket(Addr.SCANNER, camera, command, data))

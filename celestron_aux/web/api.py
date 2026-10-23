@@ -17,20 +17,24 @@ from ..motion import Axis, MotionRefused
 from ..protocol import AuxPacket
 from ..transport.factory import LIVE_MODES
 from ..transport.tcp import DEFAULT_PORT
-from .session import AlreadyConnected, WebSession
+from ..mount_emulator import MountSetup, mount_table
+from .session import AlreadyConnected, NeedsConfirmation, WebSession
 
 Json = Dict[str, Any]
 Download = Tuple[str, str, bytes]  # file name, content type, body
 
 MAX_REPLAY_SPEED = 1000.0
+EMULATIONS = {"starsense": "StarSense AutoAlign V2", "focuser": "focuser", "dew": "dew heater controller",
+              "starsense1": "StarSense AutoAlign (V1)"}
 LISTEN_ONLY_MESSAGE = "Listen-only mode is on. Turn it off to send anything to the mount."
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, message: str) -> None:
+    def __init__(self, status: int, message: str, **extra: Any) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
+        self.extra = extra  # more fields for the reply, e.g. needs_confirmation
 
 
 class WebApi:
@@ -86,10 +90,16 @@ class WebApi:
                 "motion_enabled": config.motion_enabled,
                 "gps_polling": config.gps_polling,
                 "focuser_polling": config.focuser_polling,
+                "dew_polling": config.dew_polling,
             },
             "motion": None if app is None else app.motion.snapshot(),
             "gps_status": None if app is None else {"detected": app.registry.contains(Addr.GPS),
                                                     **app.gps_monitor.snapshot()},
+            "dew_control": None if app is None else {"detected": app.registry.contains(Addr.DEW_HEATER),
+                                                     **app.dew.snapshot()},
+            "plate_solve": None if app is None else {
+                "cameras": [a for a in (Addr.STARSENSE_CAMERA_V2, Addr.STARSENSE_AUTOGUIDER) if app.registry.contains(a)],
+                **app.plate_solver.snapshot()},
             "focuser": None if app is None else {"detected": app.registry.contains(Addr.FOCUSER),
                                                  **app.focuser.snapshot()},
             "unknown_count": len(session.discovery),
@@ -98,6 +108,16 @@ class WebApi:
                 "latitude": position[0] if position else None,
                 "longitude": position[1] if position else None,
             },
+            "starsense_emulation": {"enabled": session.starsense_emulation,
+                                    **({} if app is None else app.starsense_v2.snapshot())},
+            "wifi": session.wifi_state(),
+            "dew": session.dew_state(),
+            "mount_emulator": {**session.mount_state(), "models": mount_table()},
+            "emulation": {kind: {"enabled": (session.gps_position is not None if kind == "gps"
+                                             else session.wifi_state()["enabled"] if kind == "wifi"
+                                             else session.emulating(kind)),
+                                 "versions": {f"0x{address:02x}": text for address, text in versions.items()}}
+                          for kind, versions in session.emulated_versions().items()},
             "out_of_frame_bytes": app.out_of_frame_bytes if app else 0,
             "catalog": {"names": len(catalog.user_catalog().entries()),
                         "load_error": catalog.user_catalog().load_error},
@@ -206,7 +226,10 @@ class WebApi:
         return {"message": "StarSense capture started. The star list arrives in about 8 seconds."}
 
     def starsense_sample(self, body: Mapping[str, Any]) -> Json:
-        if not self._transmitting_app().send_sample_star_list():
+        app = self._transmitting_app()
+        if not app.starsense_v1.enabled:
+            raise ApiError(409, "Switch on the StarSense AutoAlign (V1) emulator first: the star list comes from it.")
+        if not app.send_sample_star_list():
             raise ApiError(503, "The connection to the mount is closed.")
         return {"message": "Sent the sample star list."}
 
@@ -334,6 +357,9 @@ class WebApi:
         if "gps_polling" in body:
             session.set_gps_polling(_bool(body, "gps_polling"))
             changed.append(f"GPS updates {'on' if session.config.gps_polling else 'off'}")
+        if "dew_polling" in body:
+            session.set_dew_polling(_bool(body, "dew_polling"))
+            changed.append(f"Dew heater updates {'on' if session.config.dew_polling else 'off'}")
         if "focuser_polling" in body:
             session.set_focuser_polling(_bool(body, "focuser_polling"))
             changed.append(f"Focuser updates {'on' if session.config.focuser_polling else 'off'}")
@@ -357,6 +383,123 @@ class WebApi:
         self.session.discovery.clear()
         return {"message": "Unknown-traffic list cleared."}
 
+    def emulate(self, body: Mapping[str, Any]) -> Json:
+        kind = body.get("device")
+        if kind not in EMULATIONS:
+            raise ApiError(400, "'device' must be one of: " + ", ".join(EMULATIONS) + ".")
+        enabled = _bool(body, "enabled")
+        try:
+            self.session.set_emulation(kind, enabled)
+        except ValueError as exc:
+            raise ApiError(409, f"{str(exc).capitalize()}.") from exc
+        name = EMULATIONS[kind]
+        if not enabled:
+            return {"message": f"{name} emulation stopped."}
+        where = " on the local bus (no telescope)" if self.session.mode == "local" else ""
+        return {"message": f"Emulating a {name}{where}."}
+
+    def wifi(self, body: Mapping[str, Any]) -> Json:
+        """Start, stop or reconfigure the Wi-Fi dongle emulator."""
+        current = self.session.wifi_state()
+        enabled = _bool(body, "enabled", default=current["enabled"])
+        port = _int(body, "port", 1, 65535, default=current["port"])
+        passthrough = _bool(body, "passthrough", default=current["passthrough"])
+        announce = _bool(body, "announce", default=current["announce"])
+        try:
+            listening = self.session.set_wifi(enabled, port, passthrough, announce)
+        except OSError as exc:
+            raise ApiError(409, f"The Wi-Fi dongle could not start: {exc}.") from exc
+        if not enabled:
+            return {"message": "Wi-Fi dongle stopped."}
+        mode = "pass-through to the telescope" if passthrough else "emulated devices only"
+        where = " Listening on " + " and ".join(listening) + "."
+        found = " Announcing itself to apps on UDP 55555." if announce else " Not announcing itself: apps need its address."
+        return {"message": f"Wi-Fi dongle on ({mode}).{where}{found}"}
+
+    def mount_emulator(self, body: Mapping[str, Any]) -> Json:
+        """Start or stop the emulated telescope."""
+        if not _bool(body, "enabled"):
+            self.session.set_mount(False, MountSetup())
+            return {"message": "Emulated mount stopped."}
+        current = self.session.mount_state()["setup"]
+        number = lambda key: float(body[key]) if body.get(key) not in (None, "") else float(current[key])
+        try:
+            setup = MountSetup(model=str(body.get("model") or current["model"]),
+                               wedge=_bool(body, "wedge", default=current["wedge"]),
+                               initial_alt=number("initial_alt"), initial_az=number("initial_az"),
+                               inclination=number("inclination"), rotation=number("rotation"))
+            self.session.set_mount(True, setup, str(body.get("azm_version") or "") or None,
+                                   str(body.get("alt_version") or "") or None, confirm=_bool(body, "confirm", default=False))
+        except NeedsConfirmation as exc:
+            raise ApiError(409, str(exc), needs_confirmation=True) from exc
+        except (TypeError, ValueError) as exc:
+            raise ApiError(400, f"{str(exc).capitalize()}.") from exc
+        status = self.session.mount_state()["status"] or {}
+        return {"message": f"Emulating a {status.get('name', 'mount')} on the local bus (no telescope)."}
+
+    def dew_conditions(self, body: Mapping[str, Any]) -> Json:
+        """Set what the emulated dew heater controller measures."""
+        number = lambda key: None if body.get(key) in (None, "") else float(body[key])
+        try:
+            temperatures = body.get("heater_temperatures")
+            self.session.set_dew_conditions(
+                ambient=number("ambient"), humidity=number("humidity"), voltage=number("voltage"),
+                heater_temperatures=None if temperatures is None else [float(t) for t in temperatures])
+        except (TypeError, ValueError) as exc:
+            raise ApiError(400, f"{str(exc).capitalize()}.") from exc
+        return {}
+
+    def dew_control(self, body: Mapping[str, Any]) -> Json:
+        """Switch the dew heater controller's outputs, set its heaters and its LED."""
+        dew = self._transmitting_app().dew
+        action = body.get("action")
+        try:
+            if action == "output":
+                dew.set_output(_int(body, "port", 0, 2), _bool(body, "on"))
+            elif action == "automatic":
+                dew.set_automatic(_int(body, "channel", 0, 1), _int(body, "aggression", 1, 10))
+            elif action == "manual":
+                dew.set_manual(_int(body, "channel", 0, 1), float(body.get("power", -1)))
+            elif action == "led":
+                dew.set_led(_int(body, "brightness", 0, 255))
+            else:
+                raise ApiError(400, "'action' must be output, automatic, manual or led.")
+        except MotionRefused as exc:
+            raise ApiError(503, str(exc)) from exc
+        except (TypeError, ValueError) as exc:
+            raise ApiError(400, f"{str(exc).capitalize()}.") from exc
+        return {}
+
+    def plate_solve(self, body: Mapping[str, Any]) -> Json:
+        app = self._transmitting_app()
+        cameras = [a for a in (Addr.STARSENSE_CAMERA_V2, Addr.STARSENSE_AUTOGUIDER) if app.registry.contains(a)]
+        if not cameras:
+            raise ApiError(409, "No StarSense AutoAlign V2 or AutoGuider has been detected. Scan the bus first.")
+        try:
+            app.plate_solver.solve(cameras[0])
+        except MotionRefused as exc:
+            raise ApiError(503, str(exc)) from exc
+        return {"message": "Plate solving: it takes a few seconds."}
+
+    def mount_status(self) -> Json:
+        """Where the emulated telescope points, polled often by the page while it runs."""
+        return self.session.mount_state()["status"] or {"enabled": False}
+
+    def emulated_version(self, body: Mapping[str, Any]) -> Json:
+        kind = body.get("device")
+        if kind not in ("gps", "wifi", *EMULATIONS):
+            raise ApiError(400, "'device' must be gps, wifi or one of: " + ", ".join(EMULATIONS) + ".")
+        address = _int(body, "address", 0, 0xFF)
+        try:
+            version = self.session.set_emulated_version(kind, address, str(body.get("version") or ""))
+        except ValueError as exc:
+            raise ApiError(400, f"{str(exc).capitalize()}.") from exc
+        name = {"gps": "GPS", "wifi": "Wi-Fi module"}.get(kind) or EMULATIONS[kind]
+        return {"message": f"The emulated {name} (0x{address:02x}) reports version {version}."}
+
+    def starsense_emulation(self, body: Mapping[str, Any]) -> Json:
+        return self.emulate({**body, "device": "starsense"})
+
     def gps(self, body: Mapping[str, Any]) -> Json:
         if not _bool(body, "enabled"):
             self.session.set_gps(None)
@@ -367,8 +510,7 @@ class WebApi:
             self.session.set_gps((latitude, longitude))
         except ValueError as exc:
             raise ApiError(400, f"{str(exc).capitalize()}.") from exc
-        when = "" if self.session.app else " It starts answering as soon as you connect."
-        return {"message": f"GPS emulation set to {latitude:.5f}, {longitude:.5f}.{when}"}
+        return {"message": f"GPS emulation set to {latitude:.5f}, {longitude:.5f}."}
 
 
 def _axis(body: Mapping[str, Any]) -> Axis:

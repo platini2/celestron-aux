@@ -97,27 +97,26 @@
   .bar .theme { margin-left: auto; }
 
   .layout {
-    display: grid;
-    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-    grid-template-rows: auto auto auto 1fr;
-    grid-template-areas:
-      "controls devices"
-      "controls traffic"
-      "controls unknown"
-      "controls sky";
-    align-items: start;
-    gap: 18px;
-    padding: 18px 22px 28px;
-    max-width: 1500px;
-    margin: 0 auto;
+    display: flex; flex-direction: column; gap: 18px;
+    padding: 18px 22px 28px; max-width: 1600px; margin: 0 auto;
   }
-  .controls { grid-area: controls; display: flex; flex-direction: column; gap: 18px; }
-  .devices { grid-area: devices; }
-  .traffic { grid-area: traffic; }
-  .unknown-panel { grid-area: unknown; }
-  .sky { grid-area: sky; }
+  .top-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; align-items: start; }
+  .top-row .devices { grid-column: span 2; }
+  .group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; align-items: start; }
+  .group .group-grid > .panel, .group .group-grid > .emulated-device { background: transparent; margin: 0; }
+  /* Emulator cards differ a lot in height: columns let short ones fill the gaps beside tall ones. */
+  #emulators-box .group-grid { display: block; columns: 320px; column-gap: 14px; }
+  #emulators-box .group-grid > .emulated-device { break-inside: avoid; margin: 0 0 14px; }
+  .group h2 { margin-bottom: 12px; }
+  #emulators-box > summary { list-style: none; cursor: pointer; }
+  #emulators-box > summary::-webkit-details-marker { display: none; }
+  #emulators-box > summary h2::before { content: "▾ "; color: var(--muted); }
+  #emulators-box:not([open]) > summary h2::before { content: "▸ "; }
+  #emulators-box:not([open]) > summary h2 { margin-bottom: 0; }
+  #emulators-count { font-weight: 400; color: var(--muted); font-size: 0.9rem; }
   @media (max-width: 860px) {
-    .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "controls" "devices" "traffic" "unknown" "sky"; padding: 14px; }
+    .layout { padding: 14px; }
+    .top-row .devices { grid-column: auto; }
   }
 
   .panel {
@@ -285,6 +284,33 @@
   .names-list table { margin-top: 6px; }
   .warning { color: var(--danger); }
 
+  .emulated-device { border: 1px solid var(--line); border-radius: var(--radius-control); padding: 8px 10px; margin-bottom: 8px; }
+  .emulated-device .switch { padding-top: 2px; }
+  .field.version { margin-top: 4px; }
+  .field.version input { font-family: var(--mono); max-width: 12em; }
+  .emulated-device .fields { margin: 0; }
+  .dir.wifi { border-color: var(--flag); color: var(--flag); }
+  .dew-controls { margin-top: 8px; }
+  .dew-heater { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+  #dew-controls > .panel-head { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+  .dew-slider { display: grid; grid-template-columns: 5.2em 1fr 4.6em; margin: 4px 0; }
+  .dew-slider input { min-width: 0; }
+  .dew-slider output { text-align: right; white-space: nowrap; }
+  .dew-status { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; font-size: 0.86rem; }
+  .dew-status span:nth-child(n+3) { grid-column: 1 / -1; }
+  .dew-led { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--accent);
+             background: var(--accent); opacity: 0.1; transition: opacity 0.2s, box-shadow 0.2s; }
+  #mount-sky { display: block; width: 100%; max-width: 260px; margin: 10px auto 4px; }
+  #mount-sky .ring { fill: none; stroke: var(--line); }
+  #mount-sky .horizon { fill: var(--panel-2, transparent); stroke: var(--muted); }
+  #mount-sky .label { fill: var(--muted); font-size: 11px; text-anchor: middle; dominant-baseline: central; }
+  #mount-sky .trail { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: 0.6; }
+  #mount-sky .scope { fill: var(--accent); }
+  #mount-sky .scope.below { fill: none; stroke: var(--accent); stroke-width: 2; }
+  #mount-sky .target { fill: none; stroke: var(--flag); stroke-width: 2; }
+  #mount-readout { text-align: center; font-family: var(--mono); }
+  .emulated-device h3 { margin: 2px 0 8px; font-size: 1rem; font-weight: 400; }
+
   .site-footer {
     max-width: 1500px;
     margin: 0 auto;
@@ -322,8 +348,8 @@
 </header>
 
 <main class="layout">
-  <div class="controls">
-    <section class="panel" aria-labelledby="connection-title">
+  <div class="top-row">
+<section class="panel" aria-labelledby="connection-title">
       <h2 id="connection-title">Connection</h2>
       <div id="connect-form">
         <div class="modes" role="radiogroup" aria-label="How this computer reaches the mount">
@@ -361,8 +387,7 @@
       <label class="switch"><input type="checkbox" data-setting="listen_only">
         <span>Listen only<small>Never transmit: no scans, keep-alive, GPS replies or commands. Use it to watch a session without disturbing it.</small></span></label>
     </section>
-
-    <section class="panel" aria-labelledby="bus-title">
+<section class="panel" aria-labelledby="bus-title">
       <h2 id="bus-title">Bus</h2>
       <div class="buttons">
         <button id="scan" class="primary" type="button" data-transmits>Scan the bus</button>
@@ -371,90 +396,7 @@
       </div>
       <p id="scan-note" class="hint">A full scan probes every address and takes about 40 seconds.</p>
     </section>
-
-    <section class="panel" aria-labelledby="send-title">
-      <h2 id="send-title">Send a command</h2>
-      <div class="fields single">
-        <label class="field">Device<select id="send-device"><option value="">Scan the bus to list devices</option></select></label>
-        <label class="field">Command<select id="send-command" disabled></select></label>
-        <label class="field" id="custom-command-field" hidden>Command code (hex)<input id="custom-command" class="mono" type="text" placeholder="05" autocomplete="off"></label>
-        <label class="field">Payload (hex, optional)<input id="payload" class="mono" type="text" placeholder="03e800" autocomplete="off"></label>
-      </div>
-      <button id="send" class="primary" type="button" disabled>Send command</button>
-    </section>
-
-    <section class="panel" aria-labelledby="motion-title">
-      <div class="panel-head">
-        <h2 id="motion-title">Mount position</h2>
-        <label class="switch"><input type="checkbox" data-setting="motion_enabled"><span>On</span></label>
-      </div>
-      <div id="motion-body">
-      <dl class="positions">
-        <div><dt>Azimuth / RA axis</dt><dd id="pos-azm">Unknown</dd><dd class="age" id="age-azm"></dd></div>
-        <div><dt>Altitude / Dec axis</dt><dd id="pos-alt">Unknown</dd><dd class="age" id="age-alt"></dd></div>
-      </dl>
-      <div id="pad" class="pad" tabindex="0" role="group" aria-label="Move the mount. Hold a direction, or use the arrow keys while this pad has focus.">
-        <button class="pad-up" type="button" data-axis="alt" data-dir="1" data-transmits><span class="arrow" aria-hidden="true">▲</span>Alt +</button>
-        <button class="pad-left" type="button" data-axis="azm" data-dir="-1" data-transmits><span class="arrow" aria-hidden="true">◀</span>Az −</button>
-        <button id="stop-motion" class="pad-stop" type="button" data-transmits>Stop</button>
-        <button class="pad-right" type="button" data-axis="azm" data-dir="1" data-transmits><span class="arrow" aria-hidden="true">▶</span>Az +</button>
-        <button class="pad-down" type="button" data-axis="alt" data-dir="-1" data-transmits><span class="arrow" aria-hidden="true">▼</span>Alt −</button>
-      </div>
-      <label class="rate-row">Speed<input id="rate" type="range" min="1" max="9" value="5"><output id="rate-value" for="rate">5</output></label>
-      <p class="hint">When on, both motors are asked for their position every second; these are motor axis angles, not sky coordinates. Hold a direction to move; the mount stops when you let go, and by itself if this page loses contact. Watch the telescope while it moves: the motors do not know where the tripod is.</p>
-      </div>
-    </section>
-
-    <section id="gps-panel" class="panel" aria-labelledby="gps-status-title" hidden>
-      <div class="panel-head">
-        <h2 id="gps-status-title">GPS</h2>
-        <label class="switch"><input type="checkbox" data-setting="gps_polling"><span>On</span></label>
-      </div>
-      <dl id="gps-body" class="readouts">
-        <div><dt>Status</dt><dd id="gps-linked">Unknown</dd></div>
-        <div><dt>Time valid</dt><dd id="gps-time-valid">Unknown</dd></div>
-        <div><dt>Latitude</dt><dd id="gps-lat">Unknown</dd></div>
-        <div><dt>Longitude</dt><dd id="gps-lon">Unknown</dd></div>
-        <div><dt>Date and time (UTC)</dt><dd id="gps-utc">Unknown</dd></div>
-        <div><dt>Satellites</dt><dd id="gps-sats">Unknown</dd></div>
-      </dl>
-      <p class="hint"><span id="gps-age"></span> When on, the GPS is asked for its status every 5 seconds. Satellite figures are the two counts the GPS reports.</p>
-    </section>
-
-    <section id="focuser-panel" class="panel" aria-labelledby="focuser-title" hidden>
-      <div class="panel-head">
-        <h2 id="focuser-title">Focuser</h2>
-        <label class="switch"><input type="checkbox" data-setting="focuser_polling"><span>On</span></label>
-      </div>
-      <dl id="focuser-body" class="readouts">
-        <div><dt>Position</dt><dd id="focuser-position">Unknown</dd></div>
-        <div><dt>Motion</dt><dd id="focuser-moving">Unknown</dd></div>
-        <div><dt>Travel limits</dt><dd id="focuser-limits">Unknown</dd></div>
-      </dl>
-      <div id="focuser-controls">
-        <div class="focus-row" role="group" aria-label="Move the focuser. Hold a button to move.">
-          <button type="button" data-axis="focus" data-dir="-1" data-transmits aria-label="Focus minus">−</button>
-          <button id="focus-stop" class="pad-stop" type="button" data-transmits>Stop</button>
-          <button type="button" data-axis="focus" data-dir="1" data-transmits aria-label="Focus plus">+</button>
-        </div>
-        <label class="rate-row">Speed<input id="focus-rate" type="range" min="1" max="9" value="5"><output id="focus-rate-value" for="focus-rate">5</output></label>
-        <div class="goto-row">
-          <label class="field">Go to position<input id="focus-target" type="number" min="0" step="1" placeholder="e.g. 30000"></label>
-          <button id="focus-goto" type="button" data-transmits>Go</button>
-        </div>
-      </div>
-      <p class="hint"><span id="focuser-age"></span> When on, the focuser is asked for its position every second. Hold − or + to move; it stops when you let go, and by itself if this page loses contact.</p>
-    </section>
-
-    <section id="starsense-panel" class="panel" aria-labelledby="ss-title" hidden>
-      <h2 id="ss-title">StarSense</h2>
-      <div class="buttons">
-        <button id="ss-capture" class="primary" type="button" data-transmits>Take a StarSense capture</button>
-      </div>
-      <p class="hint">A capture takes about 8 seconds; the star field updates when the list arrives.</p>
-    </section>
-
-    <section class="panel" aria-labelledby="switches-title">
+<section class="panel" aria-labelledby="switches-title">
       <h2 id="switches-title">Recording and connection</h2>
       <label class="switch"><input type="checkbox" data-setting="keepalive">
         <span>Keep-alive<small>Sends a version request when the bus is idle, so Wi-Fi stays connected. Turns on by itself for Wi-Fi unless you change it.</small></span></label>
@@ -472,39 +414,16 @@
         <span>Save StarSense images<small id="image-dir"></small></span></label>
       <p id="pre-connect-hint" class="hint">These apply from the first packet once you connect.</p>
     </section>
-
-    <section class="panel" aria-labelledby="gps-title">
-      <h2 id="gps-title">GPS emulation</h2>
-      <div class="fields">
-        <label class="field">Latitude<input id="lat" type="number" step="any" min="-90" max="90" placeholder="-34.6037"></label>
-        <label class="field">Longitude<input id="lon" type="number" step="any" min="-180" max="180" placeholder="-58.3816"></label>
-      </div>
-      <div class="buttons">
-        <button id="gps-toggle" class="primary" type="button">Start GPS emulation</button>
-        <button id="gps-here" type="button">Use this device’s location</button>
-      </div>
-      <p class="hint">Answers the hand controller’s GPS questions with these coordinates and this computer’s UTC time.</p>
-    </section>
-
-    <section class="panel" aria-labelledby="ss-emulation-title">
-      <h2 id="ss-emulation-title">StarSense emulation</h2>
-      <div class="buttons">
-        <button id="ss-sample" type="button" data-transmits>Send sample star list</button>
-      </div>
-      <p class="hint">Sends a star list recorded from a real StarSense camera onto the bus, as a camera would. Useful for testing what the hand controller does with it.</p>
-    </section>
-
-  </div>
-
-  <section class="panel devices" aria-labelledby="devices-title">
+<section class="panel devices" aria-labelledby="devices-title">
     <h2 id="devices-title">Detected devices</h2>
     <table>
       <thead><tr><th>Device</th><th>Address</th><th>Firmware</th></tr></thead>
       <tbody id="devices"><tr class="empty-row"><td colspan="3">No devices yet. Scan the bus to find them.</td></tr></tbody>
     </table>
   </section>
+  </div>
 
-  <section class="panel traffic" aria-labelledby="traffic-title">
+<section class="panel traffic" aria-labelledby="traffic-title">
     <div class="toolbar">
       <h2 id="traffic-title">Traffic</h2>
       <input id="filter" type="text" placeholder="Filter, e.g. GPS or 0x10" aria-label="Filter traffic">
@@ -529,7 +448,7 @@
     </div>
   </section>
 
-  <section class="panel unknown-panel" aria-labelledby="unknown-title">
+<section class="panel unknown-panel" aria-labelledby="unknown-title">
     <div class="toolbar">
       <h2 id="unknown-title">Unknown traffic</h2>
       <button type="button" data-download="unknown">Download CSV</button>
@@ -551,7 +470,239 @@
     </details>
   </section>
 
-  <section class="panel sky" aria-labelledby="sky-title">
+<section class="panel group" aria-labelledby="control-title">
+  <h2 id="control-title">Device control</h2>
+  <div class="group-grid">
+<section class="panel" aria-labelledby="send-title">
+      <h2 id="send-title">Send a command</h2>
+      <div class="fields single">
+        <label class="field">Device<select id="send-device"><option value="">Scan the bus to list devices</option></select></label>
+        <label class="field">Command<select id="send-command" disabled></select></label>
+        <label class="field" id="custom-command-field" hidden>Command code (hex)<input id="custom-command" class="mono" type="text" placeholder="05" autocomplete="off"></label>
+        <label class="field">Payload (hex, optional)<input id="payload" class="mono" type="text" placeholder="03e800" autocomplete="off"></label>
+      </div>
+      <button id="send" class="primary" type="button" disabled>Send command</button>
+    </section>
+<section class="panel" aria-labelledby="motion-title">
+      <div class="panel-head">
+        <h2 id="motion-title">Mount position</h2>
+        <label class="switch"><input type="checkbox" data-setting="motion_enabled"><span>On</span></label>
+      </div>
+      <div id="motion-body">
+      <dl class="positions">
+        <div><dt>Azimuth / RA axis</dt><dd id="pos-azm">Unknown</dd><dd class="age" id="age-azm"></dd></div>
+        <div><dt>Altitude / Dec axis</dt><dd id="pos-alt">Unknown</dd><dd class="age" id="age-alt"></dd></div>
+      </dl>
+      <div id="pad" class="pad" tabindex="0" role="group" aria-label="Move the mount. Hold a direction, or use the arrow keys while this pad has focus.">
+        <button class="pad-up" type="button" data-axis="alt" data-dir="1" data-transmits><span class="arrow" aria-hidden="true">▲</span>Alt +</button>
+        <button class="pad-left" type="button" data-axis="azm" data-dir="-1" data-transmits><span class="arrow" aria-hidden="true">◀</span>Az −</button>
+        <button id="stop-motion" class="pad-stop" type="button" data-transmits>Stop</button>
+        <button class="pad-right" type="button" data-axis="azm" data-dir="1" data-transmits><span class="arrow" aria-hidden="true">▶</span>Az +</button>
+        <button class="pad-down" type="button" data-axis="alt" data-dir="-1" data-transmits><span class="arrow" aria-hidden="true">▼</span>Alt −</button>
+      </div>
+      <label class="rate-row">Speed<input id="rate" type="range" min="1" max="9" value="5"><output id="rate-value" for="rate">5</output></label>
+      <p class="hint">When on, both motors are asked for their position every second; these are motor axis angles, not sky coordinates. Hold a direction to move; the mount stops when you let go, and by itself if this page loses contact. Watch the telescope while it moves: the motors do not know where the tripod is.</p>
+      </div>
+    </section>
+<section id="focuser-panel" class="panel" aria-labelledby="focuser-title" hidden>
+      <div class="panel-head">
+        <h2 id="focuser-title">Focuser</h2>
+        <label class="switch"><input type="checkbox" data-setting="focuser_polling"><span>On</span></label>
+      </div>
+      <dl id="focuser-body" class="readouts">
+        <div><dt>Position</dt><dd id="focuser-position">Unknown</dd></div>
+        <div><dt>Motion</dt><dd id="focuser-moving">Unknown</dd></div>
+        <div><dt>Travel limits</dt><dd id="focuser-limits">Unknown</dd></div>
+      </dl>
+      <div id="focuser-controls">
+        <div class="focus-row" role="group" aria-label="Move the focuser. Hold a button to move.">
+          <button type="button" data-axis="focus" data-dir="-1" data-transmits aria-label="Focus minus">−</button>
+          <button id="focus-stop" class="pad-stop" type="button" data-transmits>Stop</button>
+          <button type="button" data-axis="focus" data-dir="1" data-transmits aria-label="Focus plus">+</button>
+        </div>
+        <label class="rate-row">Speed<input id="focus-rate" type="range" min="1" max="9" value="5"><output id="focus-rate-value" for="focus-rate">5</output></label>
+        <div class="goto-row">
+          <label class="field">Go to position<input id="focus-target" type="number" min="0" step="1" placeholder="e.g. 30000"></label>
+          <button id="focus-goto" type="button" data-transmits>Go</button>
+        </div>
+      </div>
+      <p class="hint"><span id="focuser-age"></span> When on, the focuser is asked for its position every second. Hold − or + to move; it stops when you let go, and by itself if this page loses contact.</p>
+    </section>
+<section id="gps-panel" class="panel" aria-labelledby="gps-status-title" hidden>
+      <div class="panel-head">
+        <h2 id="gps-status-title">GPS</h2>
+        <label class="switch"><input type="checkbox" data-setting="gps_polling"><span>On</span></label>
+      </div>
+      <dl id="gps-body" class="readouts">
+        <div><dt>Status</dt><dd id="gps-linked">Unknown</dd></div>
+        <div><dt>Time valid</dt><dd id="gps-time-valid">Unknown</dd></div>
+        <div><dt>Latitude</dt><dd id="gps-lat">Unknown</dd></div>
+        <div><dt>Longitude</dt><dd id="gps-lon">Unknown</dd></div>
+        <div><dt>Date and time (UTC)</dt><dd id="gps-utc">Unknown</dd></div>
+        <div><dt>Satellites</dt><dd id="gps-sats">Unknown</dd></div>
+      </dl>
+      <p class="hint"><span id="gps-age"></span> When on, the GPS is asked for its status every 5 seconds. Satellite figures are the two counts the GPS reports.</p>
+    </section>
+    <section id="dew-panel" class="panel" aria-labelledby="dew-control-title" hidden>
+      <div class="panel-head">
+        <h2 id="dew-control-title">Dew heater</h2>
+        <label class="switch"><input type="checkbox" data-setting="dew_polling"><span>On</span></label>
+      </div>
+      <dl id="dew-body" class="readouts">
+        <div><dt>Input</dt><dd id="dew-input">Unknown</dd></div>
+        <div><dt>Air</dt><dd id="dew-air">Unknown</dd></div>
+        <div><dt>Dew point</dt><dd id="dew-dewpoint">Unknown</dd></div>
+      </dl>
+      <div id="dew-controls">
+        <div class="dew-heater">
+          <div class="panel-head"><b>Heater 1</b><label class="switch"><input type="checkbox" data-dew-output="0" data-transmits><span>On</span></label></div>
+          <p class="hint" id="dew-heater-reading-0">Unknown</p>
+          <div class="fields">
+            <label class="field version">Mode<select data-dew-mode="0" data-transmits><option value="automatic">Automatic</option><option value="manual">Manual</option></select></label>
+            <label class="field version"><span data-dew-level-label="0">Aggressiveness</span><input type="number" data-dew-level="0" min="1" max="10" step="1" data-transmits></label>
+          </div>
+        </div>
+        <div class="dew-heater">
+          <div class="panel-head"><b>Heater 2</b><label class="switch"><input type="checkbox" data-dew-output="1" data-transmits><span>On</span></label></div>
+          <p class="hint" id="dew-heater-reading-1">Unknown</p>
+          <div class="fields">
+            <label class="field version">Mode<select data-dew-mode="1" data-transmits><option value="automatic">Automatic</option><option value="manual">Manual</option></select></label>
+            <label class="field version"><span data-dew-level-label="1">Aggressiveness</span><input type="number" data-dew-level="1" min="1" max="10" step="1" data-transmits></label>
+          </div>
+        </div>
+        <div class="panel-head"><b>12 V output</b><label class="switch"><input type="checkbox" data-dew-output="2" data-transmits><span>On</span></label></div>
+        <label class="rate-row">LED<input id="dew-led-control" type="range" min="0" max="255" value="128" data-transmits><output id="dew-led-control-value">–</output></label>
+      </div>
+      <p class="hint"><span id="dew-age"></span> When on, the controller is asked for its readings every 2 seconds. It does not report whether a heater is switched on, so the switches show the last command seen on the bus; ports 0 and 1 are taken to be the heaters.</p>
+    </section>
+
+    <section id="plate-solve-panel" class="panel" aria-labelledby="plate-solve-title" hidden>
+      <h2 id="plate-solve-title">StarSense AutoAlign V2</h2>
+      <div class="buttons"><button id="plate-solve" class="primary" type="button" data-transmits>Take a plate solve</button></div>
+      <dl class="readouts">
+        <div><dt>Result</dt><dd id="solve-status">None yet</dd></div>
+        <div><dt>Camera sees</dt><dd id="solve-camera">–</dd></div>
+        <div><dt>Telescope</dt><dd id="solve-telescope">–</dd></div>
+        <div><dt>Image rotation</dt><dd id="solve-rotation">–</dd></div>
+        <div><dt>Calibrated</dt><dd id="solve-calibrated">Unknown</dd></div>
+      </dl>
+      <p class="hint">A solve takes several seconds. RA/Dec are J2000, as CPWI uses them; "Telescope" is the solve moved by the camera's calibrated offset.</p>
+    </section>
+
+    <section id="starsense-panel" class="panel" aria-labelledby="ss-title" hidden>
+      <h2 id="ss-title">StarSense</h2>
+      <div class="buttons">
+        <button id="ss-capture" class="primary" type="button" data-transmits>Take a StarSense capture</button>
+      </div>
+      <p class="hint">A capture takes about 8 seconds; the star field updates when the list arrives.</p>
+    </section>
+  </div>
+</section>
+
+<section class="panel group" aria-labelledby="emulators-title">
+  <details id="emulators-box" open>
+    <summary><h2 id="emulators-title">Emulators <span id="emulators-count" class="count"></span></h2></summary>
+    <p class="hint">Each emulation refuses to start if a real device of that kind has answered on the bus. Versions start as those of real devices; type another (e.g. 7.16.9300 or 11.1) and press Enter to change it, even while emulating.</p>
+    <div class="group-grid">
+<div class="emulated-device">
+          <label class="switch"><input id="mount-enable" type="checkbox">
+            <span>Telescope<small>Emulates the mount's two motor controllers (0x10 and 0x11) on the local bus: go-to, direction buttons, tracking and sync, as CPWI and the hand controller use them. Starting it disconnects a real telescope, after asking.</small></span></label>
+          <p id="mount-locked" class="hint" hidden>The setup is fixed while the telescope runs. To change the mount, the wedge or the starting position, switch it off, change them, and switch it on again.</p>
+          <div class="fields"><label class="field version">Mount<select id="mount-model"></select></label></div>
+          <div class="fields">
+            <label class="field version">AZM version (0x10)<input id="mount-azm-version" type="text" autocomplete="off"></label>
+            <label class="field version">ALT version (0x11)<input id="mount-alt-version" type="text" autocomplete="off"></label>
+          </div>
+          <label class="switch"><input id="mount-wedge" type="checkbox">
+            <span id="mount-wedge-title">On a wedge<small id="mount-wedge-hint"></small></span></label>
+          <div class="fields">
+            <label class="field version">Initial altitude (°)<input id="mount-alt" type="number" step="any" min="-90" max="90" value="0"></label>
+            <label class="field version">Initial azimuth (°)<input id="mount-az" type="number" step="any" value="0"></label>
+          </div>
+          <div class="fields" id="mount-wedge-fields">
+            <label class="field version" id="mount-inclination-label">Inclination (°)<input id="mount-inclination" type="number" step="any" min="0" max="90" value="40"></label>
+            <label class="field version">Rotation (°)<input id="mount-rotation" type="number" step="any" value="0"></label>
+          </div>
+          <svg id="mount-sky" viewBox="-118 -118 236 236" role="img" aria-label="Where the emulated telescope points">
+            <circle class="horizon" r="100"></circle><circle class="ring" r="66.7"></circle><circle class="ring" r="33.3"></circle>
+            <line class="ring" x1="-100" y1="0" x2="100" y2="0"></line><line class="ring" x1="0" y1="-100" x2="0" y2="100"></line>
+            <text class="label" x="0" y="-110">N</text><text class="label" x="110" y="0">E</text>
+            <text class="label" x="0" y="110">S</text><text class="label" x="-110" y="0">W</text>
+            <polyline id="mount-trail" class="trail" points=""></polyline>
+            <circle id="mount-target" class="target" r="6" visibility="hidden"></circle>
+            <circle id="mount-dot" class="scope" r="5" visibility="hidden"></circle>
+          </svg>
+          <p id="mount-readout" class="hint">Seen from above: zenith in the centre, horizon at the edge, rings every 30° of altitude.</p>
+        </div>
+        <div class="emulated-device">
+          <label class="switch"><input id="wifi-enable" type="checkbox">
+            <span>Wi-Fi dongle<small>Apps such as CPWI or SkySafari connect to this computer as to a SkyPortal Wi-Fi module, on the loopback address and on its network address. Connected apps can control the mount when pass-through is on.</small></span></label>
+          <div class="fields">
+            <label class="field version">Port<input id="wifi-port-number" type="number" min="1" max="65535" value="2000"></label>
+            <label class="field version">Version (0xb3)<input type="text" data-version="wifi:179" autocomplete="off"></label>
+          </div>
+          <label class="switch"><input id="wifi-announce" type="checkbox" checked>
+            <span>Announce on the network<small>Broadcasts {"AMW007"} on UDP port 55555 every second, like a real SkyPortal module, so CPWI and SkySafari can find it without typing its address.</small></span></label>
+          <label class="switch"><input id="wifi-passthrough" type="checkbox">
+            <span>Pass-through to the telescope<small>On: apps reach the telescope's bus through the scanner, and see all its traffic. Off: apps only reach the emulated devices, and nothing they send reaches the telescope.</small></span></label>
+          <p id="wifi-status" class="hint"></p>
+        </div>
+        <div class="emulated-device">
+          <label class="switch"><input id="gps-enable" type="checkbox">
+            <span>GPS<small>Answers the hand controller's GPS questions at 0xb0 with these coordinates and this computer's UTC time.</small></span></label>
+          <div class="fields">
+            <label class="field version">Latitude<input id="lat" type="number" step="any" min="-90" max="90" placeholder="-34.6037"></label>
+            <label class="field version">Longitude<input id="lon" type="number" step="any" min="-180" max="180" placeholder="-58.3816"></label>
+          </div>
+          <div class="buttons"><button id="gps-here" class="link-button" type="button">Use this device’s location</button></div>
+          <label class="field version">Firmware version (0xb0)<input type="text" data-version="gps:176" autocomplete="off"></label>
+        </div>
+        <div class="emulated-device">
+          <label class="switch"><input type="checkbox" data-emulate="starsense">
+            <span>StarSense AutoAlign V2<small>Answers as a StarSense camera at 0xbd: plate solves return four alignment points in turn, and calibration works. The positions are not the real sky, so GoTos after an emulated alignment will not land on real stars.</small></span></label>
+          <label class="field version">Firmware version (0xbd)<input type="text" data-version="starsense:189" autocomplete="off"></label>
+        </div>
+        <div class="emulated-device">
+          <label class="switch"><input type="checkbox" data-emulate="focuser">
+            <span>Focuser<small>Answers as a focus motor at 0x12: it moves over time with go-to and rates 1-9, stops at its travel limits and can be calibrated. The Focuser panel works with it.</small></span></label>
+          <label class="field version">Firmware version (0x12)<input type="text" data-version="focuser:18" autocomplete="off"></label>
+        </div>
+        <div class="emulated-device">
+          <label class="switch"><input type="checkbox" data-emulate="dew">
+            <span>Dew heater controller<small>Answers as a Smart DewHeater Controller at 0x17 (and 0xbb): two heaters, a 12 V port, temperature, humidity and dew point, as CPWI expects.</small></span></label>
+          <div class="fields">
+            <label class="field version">Version (0x17)<input type="text" data-version="dew:23" autocomplete="off"></label>
+            <label class="field version">Detection (0xbb)<input type="text" data-version="dew:187" autocomplete="off"></label>
+          </div>
+          <div class="dew-controls">
+            <label class="rate-row dew-slider">Air<input id="dew-ambient" type="range" min="-30" max="50" step="0.5" value="5" data-dew="ambient" data-unit="°C"><output id="dew-ambient-value"></output></label>
+            <label class="rate-row dew-slider">Humidity<input id="dew-humidity" type="range" min="1" max="100" step="1" value="75" data-dew="humidity" data-unit="%"><output id="dew-humidity-value"></output></label>
+            <label class="rate-row dew-slider">Voltage<input id="dew-voltage" type="range" min="11" max="13" step="0.1" value="12.7" data-dew="voltage" data-unit="V"><output id="dew-voltage-value"></output></label>
+            <label class="rate-row dew-slider">Heater 1<input id="dew-heater-0" type="range" min="-30" max="60" step="0.5" value="7" data-dew-heater="0" data-unit="°C"><output id="dew-heater-0-value"></output></label>
+            <label class="rate-row dew-slider">Heater 2<input id="dew-heater-1" type="range" min="-30" max="60" step="0.5" value="7" data-dew-heater="1" data-unit="°C"><output id="dew-heater-1-value"></output></label>
+            <p class="hint">Air temperature, humidity, input voltage and the heaters' temperatures, as the controller reports them to CPWI and the hand controller. Dew point <span id="dew-point">–</span>.</p>
+            <div class="dew-status">
+              <span class="dew-led" id="dew-led" title="The LED brightness the controller was given"></span><span>LED <b id="dew-led-value">–</b></span>
+              <span>Heater 1: <b id="dew-state-0">–</b></span>
+              <span>Heater 2: <b id="dew-state-1">–</b></span>
+              <span>12 V output: <b id="dew-state-12v">–</b></span>
+            </div>
+          </div>
+        </div>
+      <div class="emulated-device">
+        <label class="switch"><input type="checkbox" data-emulate="starsense1">
+          <span>StarSense AutoAlign (V1)<small>Answers as the original StarSense camera at 0xb4, so scans and the hand controller find it. Its star field box appears at the bottom of the page.</small></span></label>
+        <label class="field version">Firmware version (0xb4)<input type="text" data-version="starsense1:180" autocomplete="off"></label>
+        <div class="buttons">
+          <button id="ss-sample" type="button" data-transmits>Send sample star list</button>
+        </div>
+        <p class="hint">Sends a star list recorded from a real StarSense camera onto the bus, as this camera would. Useful for testing what the hand controller does with it. Available while this emulator is on.</p>
+      </div>
+    </div>
+  </details>
+</section>
+
+<section id="sky-panel" class="panel sky" aria-labelledby="sky-title" hidden>
     <div class="sky-head">
       <h2 id="sky-title">Star field</h2>
       <p id="sky-caption">No star list received yet.</p>
@@ -591,7 +742,11 @@ function say(text, isError = false) {
 async function post(path, body = {}) {
   const response = await fetch(path, { method: "POST", headers: POST_HEADERS, body: JSON.stringify(body) });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+  if (!response.ok) {
+    const error = new Error(data.error || `Request failed (${response.status}).`);
+    error.data = data;  // e.g. needs_confirmation
+    throw error;
+  }
   return data;
 }
 
@@ -634,13 +789,17 @@ function render(s) {
   $("#app-copyright").textContent = s.copyright;
   const session = s.session;
   const replaying = session && session.mode === "playback";
-  const connectionName = session ? session.connection.replace(/^playback /, "Replay of ") : "";
+  const local = Boolean(session && session.mode === "local");
+  const connectionName = !session ? "" : local ? "Local bus (no telescope)" : session.connection.replace(/^playback /, "Replay of ");
   setConnection(s.connected, !session ? "Not connected"
     : session.open ? connectionName : `${connectionName} (${replaying ? "finished" : "connection lost"})`);
-  $("#connect-form").hidden = Boolean(session);
+  $("#connect-form").hidden = Boolean(session) && !local;  // the local bus can be replaced by a telescope
   $("#connected-view").hidden = !session;
   $("#pre-connect-hint").hidden = Boolean(session);
-  if (session && session.mode === "playback") {
+  if (local) {
+    $("#connected-text").textContent = "No telescope: emulated devices and Wi-Fi apps only. Connect below to use a telescope; the emulators carry on there.";
+    $("#disconnect").textContent = "Close local bus";
+  } else if (session && session.mode === "playback") {
     $("#connected-text").textContent = session.open ? `Replaying ${session.connection.replace(/^playback /, "")}.` : "Replay finished.";
     $("#disconnect").textContent = session.open ? "Stop replay" : "Close replay";
   } else if (session) {
@@ -669,9 +828,7 @@ function render(s) {
   for (const id of ["#scan", "#scan-all"]) $(id).disabled = s.scanning || !canTransmit;
   $("#scan").textContent = s.scanning ? "Scanning…" : "Scan the bus";
 
-  const gps = $("#gps-toggle");
-  gps.textContent = s.gps.enabled ? "Stop GPS emulation" : "Start GPS emulation";
-  gps.classList.toggle("primary", !s.gps.enabled);
+  $("#gps-enable").checked = Boolean(s.gps.enabled);
   if (s.gps.enabled && document.activeElement !== $("#lat") && document.activeElement !== $("#lon")) {
     $("#lat").value = s.gps.latitude;
     $("#lon").value = s.gps.longitude;
@@ -681,8 +838,34 @@ function render(s) {
   if (s.catalog.names !== shownNamesCount) loadNames(s.catalog.names);
   renderMotion(s.motion, canTransmit);
   renderGps(s.gps_status);
-  $("#starsense-panel").hidden = !s.devices.some((device) => device.address === 0xb4);
+  for (const box of document.querySelectorAll("[data-emulate]")) {
+    box.checked = Boolean(s.emulation && s.emulation[box.dataset.emulate] && s.emulation[box.dataset.emulate].enabled);
+  }
+  const v1On = Boolean(s.emulation && s.emulation.starsense1 && s.emulation.starsense1.enabled);
+  $("#ss-sample").disabled = !canTransmit || !v1On;
+  renderMountEmulator(s.mount_emulator);
+  const running = Object.values(s.emulation || {}).filter((e) => e.enabled).length
+    + (s.mount_emulator && s.mount_emulator.enabled ? 1 : 0);
+  $("#emulators-count").textContent = running ? `· ${running} running` : "· none running";
+  renderDew(s.dew);
+  const wifi = s.wifi || {};
+  $("#wifi-enable").checked = Boolean(wifi.enabled);
+  $("#wifi-passthrough").checked = Boolean(wifi.passthrough);
+  $("#wifi-announce").checked = wifi.announce !== false;
+  if (document.activeElement !== $("#wifi-port-number") && wifi.port) $("#wifi-port-number").value = wifi.port;
+  $("#wifi-status").textContent = !wifi.enabled ? "" : !wifi.listening.length ? "Starts when you connect to the telescope."
+    : `Listening on ${wifi.listening.join(" and ")}. ` + (wifi.clients.length ? `Connected: ${wifi.clients.join(", ")}.` : "No app connected.");
+  for (const input of document.querySelectorAll("[data-version]")) {
+    const [kind, address] = input.dataset.version.split(":");
+    const versions = s.emulation && s.emulation[kind] ? s.emulation[kind].versions : null;
+    if (versions && document.activeElement !== input) input.value = versions[hex(Number(address))] || "";
+  }
+  const starsenseV1 = s.devices.some((device) => device.address === 0xb4);
+  $("#starsense-panel").hidden = !starsenseV1;
+  $("#sky-panel").hidden = !starsenseV1;  // the star field only matters with a StarSense AutoAlign (V1)
   renderFocuser(s.focuser, canTransmit);
+  renderDewControl(s.dew_control, canTransmit);
+  renderPlateSolve(s.plate_solve, canTransmit);
   renderDevices(s.devices);
   if (s.stars && s.stars.seq !== shownStarsSeq) drawStars(s.stars);
 }
@@ -1173,11 +1356,231 @@ function sendCommand() {
 
 // --- GPS emulation ----------------------------------------------------------
 
-function toggleGps() {
-  if (state && state.gps.enabled) { act("/api/gps", { enabled: false }, $("#gps-toggle")); return; }
+// --- dew heater and plate solve boxes ----------------------------------------------
+
+const fmtRa = (deg) => { const s = (deg / 15) * 3600; return `${Math.floor(s / 3600)}h${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}m${(s % 60).toFixed(1).padStart(4, "0")}s`; };
+const fmtDec = (deg) => { const a = Math.abs(deg) * 3600; return `${deg < 0 ? "−" : "+"}${Math.floor(a / 3600)}°${String(Math.floor(a % 3600 / 60)).padStart(2, "0")}′${String(Math.floor(a % 60)).padStart(2, "0")}″`; };
+
+function renderDewControl(dew, canTransmit) {
+  $("#dew-panel").hidden = !(dew && dew.detected);
+  if (!dew) return;
+  const on = Boolean(dew.enabled);
+  $("#dew-body").classList.toggle("inactive", !on);
+  $("#dew-controls").classList.toggle("inactive", !on);
+  for (const control of document.querySelectorAll("#dew-controls input, #dew-controls select")) control.disabled = !canTransmit || !on;
+  const known = (v, text) => (v === null || v === undefined ? "Unknown" : text);
+  $("#dew-input").textContent = known(dew.voltage, `${dew.voltage?.toFixed(2)} V · ${dew.current?.toFixed(2)} A`);
+  $("#dew-air").textContent = known(dew.ambient, `${dew.ambient?.toFixed(1)} °C · ${dew.humidity} %`);
+  $("#dew-dewpoint").textContent = known(dew.dew_point, `${dew.dew_point?.toFixed(1)} °C`);
+  dew.heaters.forEach((h, n) => {
+    $(`#dew-heater-reading-${n}`).textContent = h.power === undefined ? "Unknown"
+      : `${h.temperature.toFixed(1)} °C · ${h.power} % · ${h.amps.toFixed(2)} A`;
+    const box = document.querySelector(`[data-dew-output="${n}"]`);
+    if (document.activeElement !== box) box.checked = h.on !== false;  // unknown counts as on
+    const mode = document.querySelector(`[data-dew-mode="${n}"]`), level = document.querySelector(`[data-dew-level="${n}"]`);
+    if (h.automatic !== undefined && document.activeElement !== mode && document.activeElement !== level) {
+      mode.value = h.automatic ? "automatic" : "manual";
+      level.value = h.automatic ? h.aggression : h.power;
+    }
+    const auto = mode.value === "automatic";
+    level.min = auto ? 1 : 0; level.max = auto ? 10 : 100;
+    document.querySelector(`[data-dew-level-label="${n}"]`).textContent = auto ? "Aggressiveness (1-10)" : "Power (%)";
+  });
+  const port = document.querySelector('[data-dew-output="2"]');
+  if (document.activeElement !== port) port.checked = dew.port_12v !== false;
+  if (dew.led !== null && dew.led !== undefined && document.activeElement !== $("#dew-led-control")) $("#dew-led-control").value = dew.led;
+  $("#dew-led-control-value").textContent = dew.led === null || dew.led === undefined ? "–" : `${dew.led}`;
+  $("#dew-age").textContent = updatedText(dew.age);
+}
+
+function sendDewLevel(n) {
+  const mode = document.querySelector(`[data-dew-mode="${n}"]`).value, value = Number(document.querySelector(`[data-dew-level="${n}"]`).value);
+  if (mode === "automatic") act("/api/dew/control", { action: "automatic", channel: n, aggression: Math.min(10, Math.max(1, Math.round(value) || 5)) });
+  else act("/api/dew/control", { action: "manual", channel: n, power: Math.min(100, Math.max(0, value || 0)) });
+}
+
+function renderPlateSolve(solve, canTransmit) {
+  $("#plate-solve-panel").hidden = !(solve && solve.cameras && solve.cameras.length);
+  if (!solve) return;
+  $("#plate-solve-title").textContent = solve.cameras && solve.cameras[0] === 0xb9 ? "StarSense AutoGuider" : "StarSense AutoAlign V2";
+  $("#plate-solve").disabled = !canTransmit || solve.solving;
+  $("#plate-solve").textContent = solve.solving ? "Solving…" : "Take a plate solve";
+  $("#solve-status").textContent = solve.status || "None yet";
+  $("#solve-camera").textContent = solve.ra === undefined ? "–" : `RA ${fmtRa(solve.ra)} · Dec ${fmtDec(solve.dec)}`;
+  $("#solve-telescope").textContent = solve.telescope_ra === undefined ? "–" : `RA ${fmtRa(solve.telescope_ra)} · Dec ${fmtDec(solve.telescope_dec)}`;
+  $("#solve-rotation").textContent = solve.rotation === undefined ? "–" : `${solve.rotation.toFixed(2)}°`;
+  $("#solve-calibrated").textContent = solve.calibrated === null || solve.calibrated === undefined ? "Unknown" : solve.calibrated ? "Yes" : "No";
+}
+
+// --- emulated dew heater controller ---------------------------------------------
+
+const dewSliders = () => document.querySelectorAll("[data-dew], [data-dew-heater]");
+let dewTimer = null;
+
+function showDewValue(slider) {
+  $(`#${slider.id}-value`).textContent = `${Number(slider.value).toFixed(slider.step < 1 ? 1 : 0)} ${slider.dataset.unit}`;
+}
+
+function sendDew() {  // what the sliders say; while dragging, at most a few times a second
+  clearTimeout(dewTimer);
+  dewTimer = setTimeout(() => {
+    const body = { heater_temperatures: [Number($("#dew-heater-0").value), Number($("#dew-heater-1").value)] };
+    for (const slider of document.querySelectorAll("[data-dew]")) body[slider.dataset.dew] = Number(slider.value);
+    post("/api/dew", body).catch((error) => say(error.message, true));
+  }, 150);
+}
+
+function renderDew(dew) {
+  if (!dew) return;
+  const c = dew.conditions;
+  for (const slider of dewSliders()) {
+    if (document.activeElement === slider) continue;  // do not fight a slider being dragged
+    slider.value = slider.dataset.dew ? c[slider.dataset.dew] : c.heater_temperatures[Number(slider.dataset.dewHeater)];
+    showDewValue(slider);
+  }
+  const s = dew.status;
+  $("#dew-point").textContent = s ? `${s.dew_point.toFixed(1)} °C` : "–";
+  const led = s ? s.led_brightness : 0;
+  $("#dew-led").style.opacity = String(0.1 + 0.9 * led / 255);
+  $("#dew-led").style.boxShadow = led ? `0 0 ${2 + led / 255 * 8}px var(--accent)` : "none";
+  $("#dew-led-value").textContent = s ? `${led} / 255` : "–";
+  for (const n of [0, 1]) {
+    const h = s ? s.heaters[n] : null;
+    $(`#dew-state-${n}`).textContent = !h ? "–" : !h.on ? "Off"
+      : `On · ${h.automatic ? `automatic (${h.aggression})` : "manual"} · ${h.power.toFixed(0)} %`;
+  }
+  $("#dew-state-12v").textContent = s ? (s.port_12v ? "On" : "Off") : "–";
+}
+
+// --- emulated telescope ---------------------------------------------------------
+
+let mountModels = [], mountFilled = false, mountRunning = false, mountPoll = null, mountTrail = [];
+const mountFields = ["#mount-model", "#mount-azm-version", "#mount-alt-version", "#mount-wedge",
+                     "#mount-alt", "#mount-az", "#mount-inclination", "#mount-rotation"];
+
+function mountSpec() { return mountModels.find((m) => m.key === $("#mount-model").value) || mountModels[0]; }
+
+function applyMountModel(fromUser) {
+  const spec = mountSpec();
+  if (!spec) return;
+  if (fromUser) {  // a new model: its own firmware, and an equatorial mount starts at the pole
+    $("#mount-azm-version").value = spec.firmware;
+    $("#mount-alt-version").value = spec.firmware;
+    if (spec.wedge === "polar") { $("#mount-alt").value = $("#mount-inclination").value; $("#mount-az").value = $("#mount-rotation").value; }
+  }
+  const wedge = $("#mount-wedge");
+  if (spec.wedge === "none") wedge.checked = false;
+  if (spec.wedge === "polar") wedge.checked = true;
+  wedge.disabled = mountRunning || spec.wedge !== "optional";
+  $("#mount-wedge-title").firstChild.textContent = spec.wedge === "polar" ? "Equatorial mount (polar axis)" : "On a wedge";
+  $("#mount-wedge-hint").textContent = spec.wedge === "none" ? `The ${spec.name} cannot be used on a wedge.`
+    : spec.wedge === "polar" ? "Its first axis points at the pole: set the axis's inclination (your latitude) and rotation."
+    : "Tilts the azimuth axis towards the pole by the inclination, turned to the rotation (0 = north, 180 = south).";
+  $("#mount-wedge-fields").hidden = !wedge.checked;
+  $("#mount-inclination-label").firstChild.textContent = spec.wedge === "polar" ? "Polar axis inclination (°)" : "Inclination (°)";
+  $("#mount-azm-version").title = $("#mount-alt-version").title = `Default ${spec.firmware}, from ${spec.firmware_source}`;
+}
+
+function renderMountEmulator(m) {
+  if (!m) return;
+  if (!mountModels.length) {
+    mountModels = m.models;
+    $("#mount-model").innerHTML = "";
+    for (const spec of mountModels) $("#mount-model").append(new Option(spec.name, spec.key));
+  }
+  const spec = (k) => mountModels.find((x) => x.key === k);
+  if (!mountFilled || (m.enabled && !mountRunning)) {  // the page's first view, or a mount started elsewhere
+    const setup = m.setup;
+    $("#mount-model").value = setup.model;
+    $("#mount-wedge").checked = setup.wedge;
+    $("#mount-alt").value = setup.initial_alt; $("#mount-az").value = setup.initial_az;
+    $("#mount-inclination").value = setup.inclination; $("#mount-rotation").value = setup.rotation;
+    $("#mount-azm-version").value = m.azm_version || spec(setup.model).firmware;
+    $("#mount-alt-version").value = m.alt_version || spec(setup.model).firmware;
+    mountFilled = true;
+  }
+  mountRunning = Boolean(m.enabled);
+  $("#mount-enable").checked = mountRunning;
+  for (const id of mountFields) $(id).disabled = mountRunning;  // the setup is fixed while it runs
+  $("#mount-locked").hidden = !mountRunning;
+  applyMountModel(false);
+  if (mountRunning && !mountPoll) { mountTrail = []; mountPoll = setInterval(pollMount, 250); pollMount(); }
+  if (!mountRunning && mountPoll) { clearInterval(mountPoll); mountPoll = null; drawMount(null); }
+}
+
+async function startMount(confirmed) {
+  const number = (id) => Number($(id).value || 0);
+  const body = { enabled: true, model: $("#mount-model").value, wedge: $("#mount-wedge").checked,
+                 initial_alt: number("#mount-alt"), initial_az: number("#mount-az"),
+                 inclination: number("#mount-inclination"), rotation: number("#mount-rotation"),
+                 azm_version: $("#mount-azm-version").value.trim(), alt_version: $("#mount-alt-version").value.trim(),
+                 confirm: confirmed };
+  try {
+    const data = await post("/api/mount_emulator", body);
+    if (data.message) say(data.message);
+  } catch (error) {
+    if (error.data && error.data.needs_confirmation && !confirmed) {
+      if (window.confirm(`${error.message}\n\nDisconnect from the telescope and start the emulated mount?`)) return startMount(true);
+      say("The emulated mount was not started.");
+    } else {
+      say(error.message, true);
+    }
+    $("#mount-enable").checked = false;
+  } finally {
+    refresh();
+  }
+}
+
+function skyPoint(alt, az) {  // seen from above: zenith in the centre, north up, east right
+  const r = Math.min(105, (90 - alt) / 90 * 100), a = az * Math.PI / 180;
+  return [r * Math.sin(a), -r * Math.cos(a)];
+}
+
+function drawMount(status) {
+  const dot = $("#mount-dot"), target = $("#mount-target");
+  if (!status || !status.enabled) {
+    dot.setAttribute("visibility", "hidden"); target.setAttribute("visibility", "hidden");
+    $("#mount-trail").setAttribute("points", "");
+    return;
+  }
+  const [x, y] = skyPoint(status.alt, status.az);
+  dot.setAttribute("cx", x.toFixed(1)); dot.setAttribute("cy", y.toFixed(1));
+  dot.setAttribute("visibility", "visible");
+  dot.classList.toggle("below", status.alt < 0);
+  const last = mountTrail[mountTrail.length - 1];
+  if (!last || Math.hypot(last[0] - x, last[1] - y) > 0.5) mountTrail.push([x, y]);
+  mountTrail = mountTrail.slice(-80);
+  $("#mount-trail").setAttribute("points", mountTrail.map((p) => p.map((v) => v.toFixed(1)).join(",")).join(" "));
+  if (status.target) {
+    const [tx, ty] = skyPoint(status.target.alt, status.target.az);
+    target.setAttribute("cx", tx.toFixed(1)); target.setAttribute("cy", ty.toFixed(1));
+    target.setAttribute("visibility", "visible");
+  } else {
+    target.setAttribute("visibility", "hidden");
+  }
+  const motion = status.moving ? (status.target ? "going to the target" : "moving") : status.tracking ? "tracking" : "stopped";
+  $("#mount-readout").textContent = `Alt ${status.alt.toFixed(2)}°  Az ${status.az.toFixed(2)}°  ·  `
+    + `AZM ${status.axes.azm.toFixed(2)}°  ALT ${status.axes.alt.toFixed(2)}°  ·  ${motion}`
+    + (status.alt < 0 ? "  ·  below the horizon" : "");
+}
+
+async function pollMount() {
+  try {
+    const response = await fetch("/api/mount_emulator/status");
+    drawMount(await response.json());
+  } catch (error) { /* the next poll tries again */ }
+}
+
+function applyGps() {
+  const box = $("#gps-enable");
+  if (!box.checked) { act("/api/gps", { enabled: false }); return; }
   const latitude = $("#lat").value, longitude = $("#lon").value;
-  if (latitude === "" || longitude === "") { say("Enter a latitude and longitude first.", true); return; }
-  act("/api/gps", { enabled: true, latitude: Number(latitude), longitude: Number(longitude) }, $("#gps-toggle"));
+  if (latitude === "" || longitude === "") {
+    say("Enter a latitude and longitude first.", true);
+    box.checked = false;
+    return;
+  }
+  act("/api/gps", { enabled: true, latitude: Number(latitude), longitude: Number(longitude) });
 }
 
 function useHere() {
@@ -1333,8 +1736,9 @@ function buildRow(item) {
   time.className = "t";
   time.textContent = item.t.toFixed(3);
   const dir = document.createElement("span");
-  dir.className = `dir ${item.dir}`;
-  dir.textContent = item.dir === "tx" ? "Sent" : "Received";
+  dir.className = `dir ${item.dir}` + (item.wifi ? " wifi" : "");
+  dir.textContent = item.wifi === "reply" ? "To Wi-Fi" : item.wifi ? "Wi-Fi" : item.dir === "tx" ? "Sent" : "Received";
+  if (item.wifi && item.wifi !== "reply") dir.title = `From the app at ${item.wifi}`;
   row.insertCell().append(dir);
   namedCell(row, d.from);
   namedCell(row, d.to);
@@ -1401,7 +1805,33 @@ $("#identify").addEventListener("click", (e) => act("/api/identify", {}, e.curre
 $("#reset-clock").addEventListener("click", (e) => act("/api/clock/reset", {}, e.currentTarget));
 $("#ss-capture").addEventListener("click", (e) => act("/api/starsense/capture", {}, e.currentTarget));
 $("#ss-sample").addEventListener("click", (e) => act("/api/starsense/sample", {}, e.currentTarget));
-$("#gps-toggle").addEventListener("click", toggleGps);
+$("#gps-enable").addEventListener("change", applyGps);
+for (const slider of dewSliders()) {
+  slider.addEventListener("input", () => { showDewValue(slider); sendDew(); });
+}
+for (const box of document.querySelectorAll("[data-dew-output]")) {
+  box.addEventListener("change", () => act("/api/dew/control", { action: "output", port: Number(box.dataset.dewOutput), on: box.checked }));
+}
+for (const select of document.querySelectorAll("[data-dew-mode]")) {
+  select.addEventListener("change", () => {
+    const n = Number(select.dataset.dewMode), level = document.querySelector(`[data-dew-level="${n}"]`);
+    level.value = select.value === "automatic" ? 5 : 50;  // a sensible start in the new mode
+    sendDewLevel(n);
+  });
+}
+for (const level of document.querySelectorAll("[data-dew-level]")) level.addEventListener("change", () => sendDewLevel(Number(level.dataset.dewLevel)));
+$("#dew-led-control").addEventListener("input", (e) => { $("#dew-led-control-value").textContent = e.currentTarget.value; });
+$("#dew-led-control").addEventListener("change", (e) => act("/api/dew/control", { action: "led", brightness: Number(e.currentTarget.value) }));
+$("#plate-solve").addEventListener("click", (e) => act("/api/starsense/solve", {}, e.currentTarget));
+$("#mount-model").addEventListener("change", () => applyMountModel(true));
+$("#mount-wedge").addEventListener("change", () => applyMountModel(false));
+$("#mount-enable").addEventListener("change", (e) => {
+  if (e.currentTarget.checked) startMount(false);
+  else act("/api/mount_emulator", { enabled: false });
+});
+for (const id of ["#lat", "#lon"]) {
+  $(id).addEventListener("change", () => { if ($("#gps-enable").checked) applyGps(); });
+}
 $("#gps-here").addEventListener("click", useHere);
 $("#send-device").addEventListener("change", loadCommands);
 $("#send-command").addEventListener("change", updateCustomField);
@@ -1451,6 +1881,21 @@ $("#stop-motion").addEventListener("click", (e) => {
   if (held) { clearInterval(held.timer); held.button.classList.remove("active"); held = null; }
   act("/api/motion/stop", {}, e.currentTarget);
 });
+for (const box of document.querySelectorAll("[data-emulate]")) {
+  box.addEventListener("change", () => act("/api/emulate", { device: box.dataset.emulate, enabled: box.checked }));
+}
+const wifiSettings = () => ({ enabled: $("#wifi-enable").checked, port: Number($("#wifi-port-number").value || 2000),
+                              passthrough: $("#wifi-passthrough").checked, announce: $("#wifi-announce").checked });
+$("#wifi-enable").addEventListener("change", () => act("/api/wifi", wifiSettings()));
+$("#wifi-passthrough").addEventListener("change", () => act("/api/wifi", wifiSettings()));
+$("#wifi-announce").addEventListener("change", () => { if ($("#wifi-enable").checked) act("/api/wifi", wifiSettings()); });
+$("#wifi-port-number").addEventListener("change", () => { if ($("#wifi-enable").checked) act("/api/wifi", wifiSettings()); });
+for (const input of document.querySelectorAll("[data-version]")) {
+  const [kind, address] = input.dataset.version.split(":");
+  // Enter leaves the field; leaving a changed field sends it once.
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+  input.addEventListener("change", () => act("/api/emulate/version", { device: kind, address: Number(address), version: input.value.trim() }));
+}
 $("#mark").addEventListener("click", markNow);
 $("#mark-text").addEventListener("keydown", (e) => { if (e.key === "Enter") markNow(); });
 document.addEventListener("keydown", (e) => {  // M jumps to the mark box from anywhere

@@ -57,6 +57,7 @@ class BusEvent:
     direction: Direction
     frame: Union[Frame, Mark]
     raw: bytes
+    origin: Optional[str] = None  # where a packet came from when not the telescope's bus (e.g. a Wi-Fi app)
 
 
 Listener = Callable[[BusEvent], None]
@@ -131,8 +132,16 @@ class AuxBus:
 
     # --- traffic ------------------------------------------------------------
 
-    def send(self, frame: OutgoingFrame) -> bool:
-        """Transmit a frame. Returns False if the bus is closed or listen-only."""
+    def send(self, frame: OutgoingFrame, origin: Optional[str] = None, *, pace: bool = True) -> bool:
+        """Transmit a frame. Returns False if the bus is closed or listen-only.
+
+        ``pace`` waits a little after sending, so devices have time to answer the
+        scanner's own requests (scans, polls). Traffic the scanner only relays (a
+        Wi-Fi app's packets) or answers (an emulator's reply) is not paced: a real
+        Wi-Fi module forwards at once, and apps such as CPWI give up after about
+        220 ms. The wait happens after the send lock is released, so it never holds
+        up anyone else's traffic.
+        """
         raw = frame.encode()
         if self.listen_only:
             log.debug("listen-only; not sending %s", raw.hex())
@@ -150,10 +159,25 @@ class AuxBus:
             timestamp = self._clock.now()
             self._tap(Direction.TX, raw, timestamp)
             if not self._transport.echoes_tx:
-                self._events.put(BusEvent(timestamp, Direction.TX, frame, raw))
-            # Pace transmissions so devices have time to answer.
+                self._events.put(BusEvent(timestamp, Direction.TX, frame, raw, origin))
+        if pace:
             time.sleep(self._inter_frame_delay)
         return True
+
+    def inject(self, frame: OutgoingFrame, raw: bytes, origin: str) -> None:
+        """A packet that arrived from elsewhere (an app on the Wi-Fi dongle): logged and seen
+        by every listener, but not sent to the telescope."""
+        timestamp = self._clock.now()
+        self._tap(Direction.RX, raw, timestamp)
+        self._events.put(BusEvent(timestamp, Direction.RX, frame, raw, origin))
+
+    def publish(self, frame: OutgoingFrame, origin: str) -> None:
+        """A packet the scanner sends somewhere other than the telescope (an emulator's reply
+        to a Wi-Fi app): logged like a sent packet, without writing it to the bus."""
+        raw = frame.encode()
+        timestamp = self._clock.now()
+        self._tap(Direction.TX, raw, timestamp)
+        self._events.put(BusEvent(timestamp, Direction.TX, frame, raw, origin))
 
     def mark(self, text: str, timestamp: Optional[float] = None) -> Mark:
         """Place a note in the traffic stream, at ``timestamp`` or now.

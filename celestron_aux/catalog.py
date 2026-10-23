@@ -30,6 +30,7 @@ class Addr:
     SCANNER = 0x2F  # the address this tool uses on the bus
     GPS = 0xB0
     STARSENSE_CAMERA = 0xB4
+    SKYPORTAL_WIFI = 0xB3
     EVOLUTION_WIFI = 0xB5
     BATTERY = 0xB6
     CHARGER = 0xB7
@@ -333,7 +334,7 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
         0x02: "SS2_GET_PLATE_STATUS",
         0x03: "SS2_START_CALIBRATE",
         0x04: "SS2_GET_CALIBRATE_STATUS",
-        0x07: "SS2_UNKNOWN_07",
+        0x07: "SS2_IS_CALIBRATED",  # a real camera answered 00 before any calibration, 01 after
         # The stored calibration, one slot per request (all zeros when none is stored):
         # slots 2-3 the calibration star's RA/Dec in degrees, slots 0-1 a position
         # 1.1 deg from it, slot 4 the image rotation, slot 5 a time (seen on real hardware).

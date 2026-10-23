@@ -68,7 +68,7 @@ celestron-aux --web 0.0.0.0:8080              # reachable from a phone or tablet
 1. Start the program with `--web`. It prints the address to open:
 
    ```
-   celestron-aux 1.0.2
+   celestron-aux 1.0.3
    Copyright © 2021-2026 Patricio Latini
    Web interface: http://localhost:8080/  (press Ctrl+C to stop)
    Open it and choose how to connect to the mount.
@@ -111,6 +111,18 @@ original timings, and it offers the CSV log, the raw capture and a summary of
 unknown traffic as downloads. Unknown packets are highlighted in the traffic
 log and collected in their own table with example payloads, to help decode new
 devices.
+
+The Emulators panel also has a **Wi-Fi dongle**: apps such as CPWI or
+SkySafari can connect to this computer (port 2000, as for a real module) as to a
+SkyPortal Wi-Fi module. With pass-through on, they control the telescope
+through the scanner, which logs and decodes all their traffic; with it off,
+they only see the emulated devices. The dongle listens on this computer's
+network address, so any device on your network can connect to it; your
+firewall may ask whether to allow it.
+
+No telescope is needed to try the emulators: switching one on opens a local
+bus where the emulated devices answer, the traffic is decoded and the scan
+buttons work. Connecting to a telescope later replaces it.
 
 There is no password: anyone who can open the page can control the mount. The
 default address only accepts connections from the same computer; use

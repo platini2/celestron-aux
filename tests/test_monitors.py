@@ -158,3 +158,56 @@ def test_focuser_goto_respects_the_travel_limits():
         assert focus_moves(mount) == [(0x02, (30000).to_bytes(3, "big"))]
     finally:
         app.close()
+
+
+# --- dew heater box and plate solves, against the emulators on a local bus ------------------
+
+def local_app(**config):
+    from celestron_aux.transport.local import LocalBusTransport
+
+    app = ScannerApp(LocalBusTransport(), AppConfig(save_starsense_images=False, **config), stream=io.StringIO())
+    app.bus._inter_frame_delay = 0
+    app.start(initial_scan=False)
+    return app
+
+
+def test_dew_box_reads_the_controller_and_switches_its_outputs():
+    app = local_app(dew_polling=True)
+    try:
+        app.enable_emulation("dew")
+        assert wait_until(lambda: app.dew.snapshot()["ambient"] == 5.0 and len(app.dew.snapshot()["heaters"][1]) > 1
+                          and app.dew.snapshot()["port_12v"] is not None and app.dew.snapshot()["led"] is not None)
+        reading = app.dew.snapshot()
+        assert (reading["voltage"], reading["humidity"], reading["port_12v"]) == (12.7, 75, True)
+        assert reading["heaters"][0]["temperature"] == 7.0 and reading["heaters"][0]["automatic"] is True
+        app.dew.set_output(1, False)
+        app.dew.set_output(2, False)
+        assert wait_until(lambda: app.dew_emulator.ports_enabled == [1, 0, 0])
+        assert wait_until(lambda: app.dew.snapshot()["heaters"][1]["on"] is False and app.dew.snapshot()["port_12v"] is False)
+        app.dew.set_manual(0, 60)
+        assert wait_until(lambda: app.dew.snapshot()["heaters"][0]["automatic"] is False
+                          and app.dew.snapshot()["heaters"][0]["power"] == 60)
+        app.dew.set_led(32)
+        assert wait_until(lambda: app.dew.snapshot()["led"] == 32 and app.dew_emulator.led_brightness == 32)
+        with pytest.raises(ValueError):
+            app.dew.set_automatic(0, 11)
+    finally:
+        app.close()
+
+
+def test_a_plate_solve_from_the_box():
+    app = local_app()
+    app.starsense_v2.solve_time = 0.3
+    try:
+        app.enable_emulation("starsense")
+        app.plate_solver.solve(0xBD)
+        assert app.plate_solver.snapshot()["solving"] is True
+        assert wait_until(lambda: "rotation" in app.plate_solver.snapshot() and "telescope_ra" in app.plate_solver.snapshot(),
+                          timeout=5)
+        result = app.plate_solver.snapshot()
+        assert result["status"] == "Solved" and result["solving"] is False and result["calibrated"] is False
+        assert result["dec"] == pytest.approx(-3.6622, abs=1e-3)  # the first recorded point, without a mount emulator
+        with pytest.raises(ValueError):
+            app.plate_solver.solve(0x10)
+    finally:
+        app.close()

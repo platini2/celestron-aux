@@ -12,6 +12,7 @@ from ..decoding import describe_packet
 from ..discovery import is_unknown
 from ..protocol import AuxPacket, CorruptFrame, StarSenseFrame
 from ..starsense import parse_star_list
+from ..wifi_bridge import ORIGIN_PREFIX
 
 Item = Dict[str, Any]
 
@@ -27,6 +28,10 @@ def event_to_item(event: BusEvent, seq: int) -> Item:
         "dir": event.direction.value,
         "raw": event.raw.hex(),
     }
+    if event.origin and event.origin.startswith(ORIGIN_PREFIX):
+        item["wifi"] = event.origin[len(ORIGIN_PREFIX):]  # sent by an app on the Wi-Fi dongle
+    elif event.origin == "emulated":
+        item["wifi"] = "reply"  # an emulator's reply that went only to the Wi-Fi apps
     frame = event.frame
     if isinstance(frame, AuxPacket):
         d = describe_packet(frame)
