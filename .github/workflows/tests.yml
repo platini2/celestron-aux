@@ -33,4 +33,17 @@ jobs:
           python -m mypy celestron_aux
 
       - name: Run the tests
-        run: python -m pytest -q
+        shell: bash
+        run: |
+          python -m pytest -q -rf --tb=short 2>&1 | tee pytest.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Show what failed in the run's annotations, without opening the log.
+            grep -E "^(FAILED|ERROR)" pytest.log | head -20 | while IFS= read -r line; do
+              echo "::error title=Failed test::${line:0:400}"
+            done
+            grep -E "^E  " pytest.log | head -12 | while IFS= read -r line; do
+              echo "::error title=Assertion::${line:0:300}"
+            done
+          fi
+          exit "$status"
