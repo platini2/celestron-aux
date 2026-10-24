@@ -35,6 +35,7 @@ jobs:
       - name: Run the tests
         shell: bash
         run: |
+          set +e  # bash here stops at the first failing command; the failures are reported below
           python -m pytest -q -rf --tb=short 2>&1 | tee pytest.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
