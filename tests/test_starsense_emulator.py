@@ -10,7 +10,7 @@ import pytest
 from celestron_aux.app import AppConfig, ScannerApp
 from celestron_aux.bus import BusEvent, Direction
 from celestron_aux.protocol import AuxPacket, FrameParser
-from celestron_aux.starsense_emulator import (ALIGNMENT_POINTS, OFFSET_ANGLE, OFFSET_LENGTH, StarSenseEmulator,
+from celestron_aux.starsense_emulator import (ALIGNMENT_POINTS, OFFSET_ANGLE, OFFSET_LENGTH, StarSenseEmulator, offset_position,
                                               gmst_degrees)
 
 from .fakes import FakeMount, wait_until
@@ -359,3 +359,23 @@ def test_aspa_error_is_the_polar_axis_offset_and_goes_to_zero_with_the_knobs():
     assert azm == pytest.approx(-1.0 * math.cos(math.radians(34)), abs=1e-4)  # on the sky
     mount.adjust(33.5, 181.0)                                           # the knobs, against the error
     assert errors() == (pytest.approx(0.0, abs=1e-4), pytest.approx(0.0, abs=1e-4))
+
+
+
+def test_directions_exactly_at_the_pole_never_raise():
+    """A mount whose polar axis is exactly on the pole (zero polar error) made asin() see a value a
+    hair beyond 1 on some platforms (macOS, Windows, and other latitudes on Linux): a domain error."""
+    from celestron_aux.sky import altaz_to_j2000, altaz_to_radec
+
+    when = NOW
+    for tenths in range(-900, 901, 3):
+        latitude = tenths / 10
+        alt, az = abs(latitude), 180.0 if latitude < 0 else 0.0
+        for longitude in (-58.0, 0.0, 120.0):
+            _, dec = altaz_to_radec(alt, az, latitude, longitude, when)
+            if latitude:  # asin cannot resolve much better than 1e-6 degrees this close to +-1
+                assert dec == pytest.approx(math.copysign(90.0, latitude), abs=1e-4)
+            altaz_to_j2000(alt, az, latitude, longitude, when)
+    for dec in (89.9999999, -89.9999999, 90.0, -90.0):
+        ra, dec2 = offset_position(10.0, dec, 1.1178, 0.0)       # the offset from a solve near a pole
+        assert -90.0 <= dec2 <= 90.0

@@ -103,7 +103,8 @@ ALIGNMENT_POINTS: Tuple[SkyPoint, ...] = (
 def offset_position(ra: float, dec: float, length: float, angle: float) -> Tuple[float, float]:
     """The point ``length`` degrees from (ra, dec) at position angle ``angle`` (north through east)."""
     ra1, dec1, dist, pa = map(math.radians, (ra, dec, length, angle))
-    dec2 = math.asin(math.sin(dec1) * math.cos(dist) + math.cos(dec1) * math.sin(dist) * math.cos(pa))
+    sine = math.sin(dec1) * math.cos(dist) + math.cos(dec1) * math.sin(dist) * math.cos(pa)
+    dec2 = math.asin(max(-1.0, min(1.0, sine)))  # rounding may leave it a hair beyond 1 near a pole
     ra2 = ra1 + math.atan2(math.sin(pa) * math.sin(dist) * math.cos(dec1),
                            math.cos(dist) - math.sin(dec1) * math.sin(dec2))
     return math.degrees(ra2) % 360, math.degrees(dec2)

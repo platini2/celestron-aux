@@ -28,7 +28,10 @@ def gmst_degrees(when: datetime) -> float:
 def altaz_to_radec(alt: float, az: float, latitude: float, longitude: float, when: datetime) -> Tuple[float, float]:
     """RA/Dec of date (degrees) of the direction ``alt``/``az`` (azimuth from north through east)."""
     a, z, phi = map(math.radians, (alt, az, latitude))
-    dec = math.asin(math.sin(phi) * math.sin(a) + math.cos(phi) * math.cos(a) * math.cos(z))
+    # Rounding can leave this a hair beyond +-1 exactly at the poles (a mount pointing at the pole
+    # reads as such on some platforms' math libraries): clamp it, or asin raises "math domain error".
+    sine_dec = math.sin(phi) * math.sin(a) + math.cos(phi) * math.cos(a) * math.cos(z)
+    dec = math.asin(max(-1.0, min(1.0, sine_dec)))
     hour_angle = math.atan2(-math.sin(z) * math.cos(a), math.cos(phi) * math.sin(a) - math.sin(phi) * math.cos(a) * math.cos(z))
     lst = gmst_degrees(when) + longitude
     return (lst - math.degrees(hour_angle)) % 360, math.degrees(dec)

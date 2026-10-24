@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The emulated StarSense camera raised "math domain error" when the emulated
+  polar axis pointed exactly at the celestial pole, which is what a perfect
+  polar alignment is, on Windows and macOS (and at some latitudes on Linux):
+  rounding left the value an arcsine received a hair beyond 1. The conversion
+  from altitude and azimuth to RA/Dec, and the offset of a solve, now clamp it.
+
 ## 1.1.0
 
 Everything since 1.0.2: the changes made since 1.0.3 come first in each
