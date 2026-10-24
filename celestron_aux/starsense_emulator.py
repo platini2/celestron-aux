@@ -47,12 +47,35 @@ START_CALIBRATE, GET_CALIBRATE_STATUS = 0x03, 0x04
 IS_CALIBRATED, GET_CALIBRATION_DATA = 0x07, 0x08
 SET_MOUNT_INFO, SET_GEOLOCATION, SET_TIME_NOW = 0x30, 0x31, 0x32
 GET_IMAGE_ROTATION, GET_TELESCOPE_POSITION, GET_VERSION = 0x45, 0x4B, 0xFE
+# All-Star Polar Alignment (ASPA), as CPWI uses it (worked out from captures of a real camera):
+#   0x13  start (01) or stop (00) an ASPA, or go on to the adjustment step (04, sent by CPWI
+#         once the completion reaches 100 %); the camera answers 00.
+#   0x15  the estimated polar axis: 01 + RA/Dec (J2000, radians), or 04 + zeros without one.
+#         Here: where the emulated wedge's or equatorial mount's polar axis really points.
+#   0x17  progress: a status (01), the completion (one byte, 0-100), the uncertainty in degrees
+#         (float32), then three bytes not understood (a real camera sent 00 00 68).
+# CPWI turns the RA axis about 5 degrees between solves; the completion grows with that turn,
+# 100 % at ASPA_SPAN degrees: after 4 turns, so at the 5th solve (0, 25, 50, 75, 100 %).
+# The uncertainty shrinks with it.
+ASPA_SPAN = 20.0
+ASPA_UNCERTAINTY = (5.0, 0.05)  # degrees, at 0 % and at 100 %
+ASPA_TAIL = bytes.fromhex("000068")
+ASPA_IDLE = bytes((0, 0)) + struct.pack(">f", 0.0) + ASPA_TAIL  # before an ASPA has a solve, as a real camera
+NO_ESTIMATE = bytes.fromhex("040000000000000000")
+SET_ASPA, GET_ASPA_POLE, GET_ASPA_PROGRESS = 0x13, 0x15, 0x17
+#   0x16  the polar alignment error, asked in the adjustment step: status 01, then the altitude
+#         error and the azimuth error in degrees (float32), worked out with CPWI's adjustment
+#         screen; 00 + zeros outside a measurement, as a real camera.
+GET_ASPA_ERROR = 0x16
+ASPA_ERROR_NONE = bytes(9)
 
 IN_PROGRESS, SOLVED = 0, 1
 EPOCH_2000 = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 # The camera-to-telescope offset seen on a real camera: 1.1178 deg, at 117.6 deg
 # from the image rotation; and the calibration result it reported (pixels).
+MIN_SOLVE_ALTITUDE = 5.0  # degrees: lower than this a real camera sees ground or haze, and fails
+FAILED = 4                # the status a real camera reports for a failed solve
 SOLVE_ERROR = 12.0  # arcsec: the scatter of an emulated solve on each axis (never exactly zero)
 OFFSET_LENGTH = 1.1178
 OFFSET_ANGLE = 117.6
@@ -86,6 +109,27 @@ def offset_position(ra: float, dec: float, length: float, angle: float) -> Tuple
     return math.degrees(ra2) % 360, math.degrees(dec2)
 
 
+def _unit(ra: float, dec: float) -> Tuple[float, float, float]:
+    r, d = math.radians(ra), math.radians(dec)
+    return (math.cos(d) * math.cos(r), math.cos(d) * math.sin(r), math.sin(d))
+
+
+def _turn_around(pole: Optional[Tuple[float, float]], a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    """Degrees between two sky positions, seen around the polar axis (the angle the RA axis
+    turned), or simply the angle between them when there is no polar axis."""
+    u: Tuple[float, ...] = _unit(*a)
+    v: Tuple[float, ...] = _unit(*b)
+    if pole is not None:
+        p = _unit(*pole)
+        u = tuple(x - sum(i * j for i, j in zip(u, p)) * y for x, y in zip(u, p))
+        v = tuple(x - sum(i * j for i, j in zip(v, p)) * y for x, y in zip(v, p))
+    norm = math.sqrt(sum(x * x for x in u) * sum(x * x for x in v))
+    if norm < 1e-12:
+        return 0.0  # a solve at the pole itself: no turn can be seen
+    cosine = max(-1.0, min(1.0, sum(x * y for x, y in zip(u, v)) / norm))
+    return math.degrees(math.acos(cosine))
+
+
 def _radec(ra: float, dec: float) -> bytes:
     return struct.pack(">ff", math.radians(ra), math.radians(dec))
 
@@ -115,9 +159,15 @@ class StarSenseEmulator:
         self._calibration_star: Optional[Tuple[float, float]] = None
         self._calibration: Optional[List[float]] = None  # the six 0x08 slots
         self.versions = {ADDRESS: FIRMWARE_VERSION}  # can be changed while running
+        self._aspa_active = False
+        self._aspa_first: Optional[Tuple[float, float]] = None  # the first solve of the ASPA (RA, Dec)
+        self._aspa_turn = 0.0  # degrees turned around the polar axis since then
+        self._aspa_adjusting = False  # CPWI's adjustment step (0x13 04)
         self._rng = rng or random.Random()
         # Where an emulated telescope points: (altitude, azimuth, is alt-az), or None.
         self.pointing_source: Optional[Callable[[], Optional[Tuple[float, float, bool]]]] = None
+        # Where an emulated mount's polar axis points: (altitude, azimuth), or None.
+        self.polar_axis_source: Optional[Callable[[], Optional[Tuple[float, float]]]] = None
 
     # --- control ------------------------------------------------------------------
 
@@ -167,17 +217,25 @@ class StarSenseEmulator:
             return struct.pack(">f", slots[data[0]] if data and data[0] < len(slots) else 0.0)
         if command == START_PLATE_SOLVE:
             self._solve_started = self._clock()
-            self._solution = self._next_point()
+            pointing = self.pointing_source() if self.pointing_source is not None else None
+            if pointing is not None and pointing[0] < MIN_SOLVE_ALTITUDE:
+                self._solution = None  # looking at the ground: this solve will fail
+            else:
+                self._solution = self._next_point()
             return b""
         if command == GET_PLATE_STATUS:
             if not self._solve_done():
                 return bytes(9)
-            ra, dec, _ = self._solution  # type: ignore[misc]
+            if self._solution is None:
+                return bytes((FAILED,)) + bytes(8)
+            ra, dec, _ = self._solution
             return bytes((SOLVED,)) + _radec(ra, dec)
         if command == GET_TELESCOPE_POSITION:
             if not self._solve_done():
                 return bytes(9)  # like the plate status: nothing to report yet
-            ra, dec, rotation = self._solution  # type: ignore[misc]
+            if self._solution is None:
+                return bytes((FAILED,)) + bytes(8)
+            ra, dec, rotation = self._solution
             return bytes((SOLVED,)) + _radec(*offset_position(ra, dec, OFFSET_LENGTH, rotation - OFFSET_ANGLE))
         if command == GET_IMAGE_ROTATION:
             rotation = self._solution[2] if self._solution else self._points[0].rotation
@@ -189,7 +247,66 @@ class StarSenseEmulator:
             return b""
         if command == GET_CALIBRATE_STATUS:
             return self._calibration_status()
+        if command == SET_ASPA:
+            mode = data[0] if data else 0
+            if mode == 1:    # start: a new measurement
+                self._aspa_active, self._aspa_first, self._aspa_turn = True, None, 0.0
+                self._aspa_adjusting = False
+            elif mode == 0:  # stop
+                self._aspa_active, self._aspa_first, self._aspa_turn = False, None, 0.0
+                self._aspa_adjusting = False
+            else:            # 04: the adjustment step, keeping the finished measurement
+                self._aspa_adjusting = True
+            return b"\x00"
+        if command == GET_ASPA_POLE:
+            return self._aspa_pole()
+        if command == GET_ASPA_PROGRESS:
+            return self._aspa_progress()
+        if command == GET_ASPA_ERROR:
+            return self._aspa_error()
         return None  # unknown command: a real camera may answer, but we do not guess
+
+    def _aspa_error(self) -> bytes:
+        """How far the emulated polar axis is from the celestial pole: altitude error, then azimuth
+        error as an angle on the sky (so CPWI's total error is the real distance), in degrees."""
+        axis = self.polar_axis_source() if self.polar_axis_source is not None else None
+        measured = self._aspa_adjusting or (self._aspa_active and self._aspa_turn >= ASPA_SPAN)
+        if axis is None or self._location is None or not measured:
+            return ASPA_ERROR_NONE
+        latitude = self._location[0]
+        pole_alt, pole_az = abs(latitude), (180.0 if latitude < 0 else 0.0)
+        alt_error = axis[0] - pole_alt
+        azimuth_error = (((axis[1] - pole_az + 180) % 360) - 180) * math.cos(math.radians(pole_alt))
+        return bytes((SOLVED,)) + struct.pack(">ff", alt_error, azimuth_error)
+
+    def _pole_j2000(self) -> Optional[Tuple[float, float]]:
+        """Where the emulated mount's polar axis points (J2000 RA/Dec), if there is one."""
+        axis = self.polar_axis_source() if self.polar_axis_source is not None else None
+        if axis is None or self._location is None:
+            return None
+        when = self._now() + timedelta(seconds=self._time_offset)
+        return altaz_to_j2000(axis[0], axis[1], self._location[0], self._location[1], when)
+
+    def _aspa_pole(self) -> bytes:
+        pole = self._pole_j2000()
+        return NO_ESTIMATE if pole is None else bytes((SOLVED,)) + _radec(*pole)
+
+    def _aspa_progress(self) -> bytes:
+        if not self._aspa_active or self._aspa_first is None:
+            return ASPA_IDLE
+        completion = min(100, int(round(self._aspa_turn / ASPA_SPAN * 100)))
+        start, final = ASPA_UNCERTAINTY
+        uncertainty = start - (start - final) * completion / 100
+        return bytes((SOLVED, completion)) + struct.pack(">f", uncertainty) + ASPA_TAIL
+
+    def _aspa_note_solve(self, ra: float, dec: float) -> None:
+        """Follow how far the solves have turned around the polar axis since the ASPA started."""
+        if not self._aspa_active:
+            return
+        if self._aspa_first is None:
+            self._aspa_first = (ra, dec)
+            return
+        self._aspa_turn = max(self._aspa_turn, _turn_around(self._pole_j2000(), self._aspa_first, (ra, dec)))
 
     def _store_setting(self, command: int, data: bytes) -> None:
         if command == SET_GEOLOCATION and len(data) >= 8:
@@ -202,6 +319,7 @@ class StarSenseEmulator:
         solved = self._solve_emulated_telescope()
         if solved is not None:
             self._solves += 1
+            self._aspa_note_solve(solved[0], solved[1])
             return solved
         point = self._points[self._solves % len(self._points)]
         self._solves += 1

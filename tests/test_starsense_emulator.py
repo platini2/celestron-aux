@@ -240,8 +240,8 @@ def test_solves_move_with_the_telescope_without_any_outside_library():
     first = solve(camera, sent)
     again = solve(camera, sent)
     assert 0 < separation(first, again) * 3600 < 120  # the same place: only the small solve error differs
-    mount.answer(0x10, 0x04, int(20 / 360 * (1 << 24)).to_bytes(3, "big"))  # 20 degrees round, instantly (a sync)
-    moved = solve(camera, sent)                                                # so the sky has not turned meanwhile
+    mount.axes[0x10].degrees = 20.0  # turned 20 degrees, instantly, so the sky has not turned meanwhile
+    moved = solve(camera, sent)
     expected = math.degrees(math.acos(math.cos(math.radians(30)) ** 2 * math.cos(math.radians(20))
                                       + math.sin(math.radians(30)) ** 2))  # the angle between the two pointings
     assert separation(first, moved) == pytest.approx(expected, abs=1 / 60)  # within the solve error
@@ -252,3 +252,110 @@ def test_without_an_emulated_telescope_the_recorded_points_are_used():
     mount.disable()
     ra, dec = solve(camera, sent)
     assert dec == pytest.approx(ALIGNMENT_POINTS[0].dec, abs=1e-4)
+
+
+def test_aspa_like_cpwi_runs_it():
+    """CPWI starts ASPA (0x13 01), then after each solve asks the polar axis (0x15) and the
+    progress (0x17: status, completion 0-100, uncertainty in degrees, three unknown bytes),
+    turning the RA axis between solves."""
+    from celestron_aux.mount_emulator import MountEmulator, MountSetup
+
+    clock = Clock()
+    mount = MountEmulator(lambda packet: None, clock=clock)
+    # Start on the celestial equator at the meridian (north, at a southern site), as an ASPA should:
+    # turning RA 50 degrees from there stays well above the horizon.
+    mount.configure(MountSetup(model="cgx-l", inclination=34, rotation=180, initial_alt=56, initial_az=0,
+                               polar_error_alt=0, polar_error_az=0))
+    mount.enable()
+    sent = []
+    camera = StarSenseEmulator(sent.append, clock=clock, now=lambda: NOW + timedelta(seconds=clock.t),
+                               solve_time=0, rng=random.Random(5))
+    camera.pointing_source, camera.polar_axis_source = mount.sky_pointing, mount.polar_axis
+    camera.enable()
+    ask(camera, sent, 0x31, struct.pack(">ff", -34.0, -58.0))  # a southern site
+    progress = lambda: (lambda r: (r[0], r[1], round(struct.unpack(">f", r[2:6])[0], 3), r[6:].hex()))(ask(camera, sent, 0x17))
+    assert progress() == (0, 0, 0.0, "000068")                  # before an ASPA: as a real camera
+    assert ask(camera, sent, 0x13, b"\x01") == b"\x00"           # start
+    assert progress() == (0, 0, 0.0, "000068")                  # no solve yet
+    pole = ask(camera, sent, 0x15)
+    assert pole[0] == 1 and radec(pole)[1] == pytest.approx(-89.85, abs=0.1)  # the south celestial pole (J2000)
+    seen = []
+    for turn in range(5):                                        # solve, then turn the RA axis 5 degrees, as CPWI
+        solve(camera, sent)
+        seen.append(progress())
+        mount.axes[0x10].degrees += 5.0
+    assert [p[0] for p in seen] == [1] * 5
+    assert [p[1] for p in seen] == [0, 25, 50, 75, 100]          # 5 steps: 100 % at the 5th solve
+    assert [p[2] for p in seen] == sorted([p[2] for p in seen], reverse=True)  # the uncertainty shrinks
+    assert seen[0][2] == 5.0 and seen[-1][2] == 0.05              # to a small, non-zero value
+    assert all(p[3] == "000068" for p in seen)
+    assert ask(camera, sent, 0x13, b"\x04") == b"\x00"           # CPWI goes on to the adjustment step...
+    assert progress()[:2] == (1, 100)                            # ...and the measurement is kept
+    ask(camera, sent, 0x13, b"\x00")                             # stop
+    assert progress() == (0, 0, 0.0, "000068")
+
+
+def test_without_a_polar_axis_there_is_no_estimate():
+    emu, sent, _ = emulator()
+    assert ask(emu, sent, 0x15) == bytes.fromhex("040000000000000000")
+
+
+
+def test_aspa_measures_the_placement_error_until_the_knobs_compensate_it():
+    from celestron_aux.mount_emulator import MountEmulator, MountSetup
+
+    clock = Clock()
+    mount = MountEmulator(lambda packet: None, clock=clock)
+    mount.configure(MountSetup(model="cgx-l", inclination=34, rotation=180, initial_alt=55, initial_az=0,
+                               polar_error_alt=0.5, polar_error_az=-1.0))
+    mount.enable()
+    sent = []
+    camera = StarSenseEmulator(sent.append, clock=clock, now=lambda: NOW + timedelta(seconds=clock.t), solve_time=0)
+    camera.polar_axis_source = mount.polar_axis
+    camera.enable()
+    ask(camera, sent, 0x31, struct.pack(">ff", -34.0, -58.0))
+    south_pole_j2000 = radec(ask(camera, sent, 0x15))  # measured with the error...
+    mount.adjust(33.5, 181.0)                          # ...then compensated with the knobs
+    aligned = radec(ask(camera, sent, 0x15))
+    assert separation(south_pole_j2000, aligned) == pytest.approx(1.1, abs=0.15)  # the error was about 1.1 deg
+    assert aligned[1] == pytest.approx(-89.85, abs=0.05)                         # now on the pole (J2000)
+
+
+
+def test_a_solve_below_the_horizon_fails_like_a_real_camera():
+    mount, camera, sent, clock = coupled(model="cpc", initial_alt=3, initial_az=120)  # 3 degrees up: too low
+    ask(camera, sent, 0x01)
+    assert ask(camera, sent, 0x02) == bytes((4,)) + bytes(8)   # failed (status 4), no position
+    assert ask(camera, sent, 0x4B) == bytes((4,)) + bytes(8)
+    mount.answer(0x11, 0x02, int(30 / 360 * (1 << 24)).to_bytes(3, "big"))  # up to 33 degrees
+    clock.t += 30
+    ask(camera, sent, 0x01)
+    assert ask(camera, sent, 0x02)[0] == 1                       # now it solves
+
+
+def test_aspa_error_is_the_polar_axis_offset_and_goes_to_zero_with_the_knobs():
+    """0x16 in CPWI's adjustment step: status 01, altitude error, azimuth error (degrees, the
+    azimuth one as an angle on the sky). Turning the knobs against the placement error zeroes it."""
+    from celestron_aux.mount_emulator import MountEmulator, MountSetup
+
+    clock = Clock()
+    mount = MountEmulator(lambda packet: None, clock=clock)
+    mount.configure(MountSetup(model="cgx-l", inclination=34, rotation=180, initial_alt=56, initial_az=0,
+                               polar_error_alt=0.5, polar_error_az=-1.0))
+    mount.enable()
+    sent = []
+    camera = StarSenseEmulator(sent.append, clock=clock, now=lambda: NOW + timedelta(seconds=clock.t), solve_time=0)
+    camera.polar_axis_source = mount.polar_axis
+    camera.enable()
+    ask(camera, sent, 0x31, struct.pack(">ff", -34.0, -58.0))         # a southern site
+    errors = lambda: struct.unpack(">ff", ask(camera, sent, 0x16)[1:9])
+    assert ask(camera, sent, 0x16) == bytes(9)                         # no measurement yet: as a real camera
+    ask(camera, sent, 0x13, b"\x01")
+    assert ask(camera, sent, 0x16) == bytes(9)                         # measuring: still nothing
+    ask(camera, sent, 0x13, b"\x04")                                   # CPWI's adjustment step
+    assert ask(camera, sent, 0x16)[0] == 1
+    alt, azm = errors()
+    assert alt == pytest.approx(0.5, abs=1e-4)
+    assert azm == pytest.approx(-1.0 * math.cos(math.radians(34)), abs=1e-4)  # on the sky
+    mount.adjust(33.5, 181.0)                                           # the knobs, against the error
+    assert errors() == (pytest.approx(0.0, abs=1e-4), pytest.approx(0.0, abs=1e-4))

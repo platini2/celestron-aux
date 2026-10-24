@@ -57,6 +57,7 @@ POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
     "/api/emulate/version": WebApi.emulated_version,
     "/api/wifi": WebApi.wifi,
     "/api/mount_emulator": WebApi.mount_emulator,
+    "/api/mount_emulator/adjust": WebApi.mount_adjust,
     "/api/dew": WebApi.dew_conditions,
     "/api/dew/control": WebApi.dew_control,
     "/api/starsense/solve": WebApi.plate_solve,

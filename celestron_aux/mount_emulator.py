@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .catalog import Addr
@@ -160,6 +160,9 @@ class MotorAxis:
     limit_min: float = -180.0
     limit_max: float = 180.0
     limits_on: bool = False
+    # The reading where the axis is physically at its power-on direction. ``degrees`` is what the
+    # motor reports; a sync (set position) changes the reading only, never where it points.
+    zero: float = 0.0
 
     def __post_init__(self) -> None:
         self.updated = self.clock()
@@ -217,7 +220,14 @@ class MotorAxis:
         self.button = direction * (self.rate9 * SLEW_FACTOR if rate >= 9 else _BUTTON_RATES.get(rate, 0.0))
 
     def set_position(self, degrees: float) -> None:
+        """A sync: from now on the motor reports ``degrees`` here. The telescope does not move."""
+        self.zero = (self.zero + degrees - self.degrees) % 360
         self.degrees, self.target = degrees % 360, None
+
+    @property
+    def physical(self) -> float:
+        """Where the axis is, from its power-on direction, whatever the motor has been told it reads."""
+        return (self.degrees - self.zero) % 360
 
 
 
@@ -254,6 +264,11 @@ class MountSetup:
     initial_az: float = 0.0
     inclination: float = 40.0  # the wedge or polar axis: normally the latitude
     rotation: float = 0.0      # its azimuth: 0 towards north, 180 towards south
+    # A real mount is never placed perfectly: its polar axis is off by this much from the
+    # inclination and rotation set above, which act as its adjustment knobs. A polar
+    # alignment (CPWI's ASPA) measures the error; turning the knobs removes it.
+    polar_error_alt: float = 0.5
+    polar_error_az: float = -1.0
 
     def validated(self) -> "MountSetup":
         spec = MOUNTS_BY_KEY.get(self.model)
@@ -265,8 +280,17 @@ class MountSetup:
             raise ValueError("the wedge inclination must be between 0 and 90 degrees")
         if self.wedge and spec.wedge == NO_WEDGE:
             raise ValueError(f"the {spec.name} cannot be used on a wedge")
+        if not (-10 <= self.polar_error_alt <= 10 and -10 <= self.polar_error_az <= 10):
+            raise ValueError("the polar alignment error must be between -10 and 10 degrees")
         return MountSetup(self.model, self.wedge or spec.wedge == POLAR, self.initial_alt,
-                          self.initial_az % 360, self.inclination, self.rotation % 360)
+                          self.initial_az % 360, self.inclination, self.rotation % 360,
+                          self.polar_error_alt, self.polar_error_az)
+
+    @property
+    def polar_axis(self) -> Tuple[float, float]:
+        """Where the polar axis really points: the knobs plus the placement error."""
+        return (max(0.0, min(90.0, self.inclination + self.polar_error_alt)),
+                (self.rotation + self.polar_error_az) % 360)
 
     @property
     def spec(self) -> MountSpec:
@@ -291,8 +315,7 @@ class MountEmulator(DeviceEmulator):
         with self._lock:
             self.setup = setup
             self.versions = versions
-            self.frame = (Frame.for_axis(setup.inclination, setup.rotation) if setup.wedge
-                          else Frame.for_axis(90.0, 0.0))
+            self.frame = Frame.for_axis(*setup.polar_axis) if setup.wedge else Frame.for_axis(90.0, 0.0)
             self._origin = self.frame.angles(setup.initial_alt, setup.initial_az)  # motor angles 0 = here
             self.axes = {address: MotorAxis(self._clock, setup.spec.rate9) for address in self.addresses}
             self.backlash = {address: [0, 0] for address in self.addresses}  # positive, negative (real: 0)
@@ -306,11 +329,35 @@ class MountEmulator(DeviceEmulator):
     # --- where it points ----------------------------------------------------------------
 
     def pointing_for(self, azm: float, alt: float) -> Tuple[float, float]:
-        return self.frame.pointing(self._origin[0] + azm, self._origin[1] + alt)
+        """Where the telescope points when the motors read ``azm`` and ``alt`` (their own readings,
+        after any sync)."""
+        azm_zero, alt_zero = self.axes[Addr.AZM_MOTOR].zero, self.axes[Addr.ALT_MOTOR].zero
+        return self.frame.pointing(self._origin[0] + azm - azm_zero, self._origin[1] + alt - alt_zero)
 
     def _advance(self) -> None:
         for axis in self.axes.values():
             axis.advance()
+
+    def polar_axis(self) -> Optional[Tuple[float, float]]:
+        """Altitude and azimuth where the polar axis really points (wedge or equatorial mount),
+        while emulating; else None."""
+        with self._lock:
+            if not self._enabled or not self.setup.wedge:
+                return None
+            return self.setup.polar_axis
+
+    def adjust(self, inclination: float, rotation: float) -> None:
+        """Turn the wedge's or mount's adjustment knobs while it runs: the polar axis moves, and
+        the telescope with it; the motors keep their positions. ValueError if not possible."""
+        if not 0 <= inclination <= 90:
+            raise ValueError("the inclination must be between 0 and 90 degrees")
+        with self._lock:
+            if not self.setup.wedge:
+                raise ValueError("an alt-az telescope has no polar axis to adjust")
+            for axis in self.axes.values():
+                axis.advance()  # motion so far happened with the old axis
+            self.setup = replace(self.setup, inclination=inclination, rotation=rotation % 360)
+            self.frame = Frame.for_axis(*self.setup.polar_axis)
 
     def sky_pointing(self) -> Optional[Tuple[float, float, bool]]:
         """Altitude, azimuth and whether it is alt-az, while emulating; else None."""

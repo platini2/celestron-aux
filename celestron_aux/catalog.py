@@ -335,6 +335,12 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
         0x03: "SS2_START_CALIBRATE",
         0x04: "SS2_GET_CALIBRATE_STATUS",
         0x07: "SS2_IS_CALIBRATED",  # a real camera answered 00 before any calibration, 01 after
+        # All-Star Polar Alignment, as CPWI uses it: start/stop, the estimated polar axis
+        # (status + RA/Dec), and the progress (status, completion %, uncertainty in degrees).
+        0x13: "SS2_SET_ASPA",
+        0x15: "SS2_GET_ASPA_POLE",
+        0x16: "SS2_GET_ASPA_ERROR",  # status, altitude error, azimuth error (degrees)
+        0x17: "SS2_GET_ASPA_PROGRESS",
         # The stored calibration, one slot per request (all zeros when none is stored):
         # slots 2-3 the calibration star's RA/Dec in degrees, slots 0-1 a position
         # 1.1 deg from it, slot 4 the image rotation, slot 5 a time (seen on real hardware).

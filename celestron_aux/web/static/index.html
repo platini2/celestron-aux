@@ -430,7 +430,7 @@
       <label class="switch"><input id="only-unknown" type="checkbox"><span>Only unknown</span></label>
       <label class="switch"><input id="show-hex" type="checkbox"><span>Value hex</span></label>
       <label class="switch"><input id="show-raw" type="checkbox"><span>Raw bytes</span></label>
-      <button id="to-latest" type="button" hidden>Newer messages</button>
+      <button id="to-latest" type="button" style="visibility: hidden">Newer messages</button>
       <button id="reset-clock" type="button" data-needs-connection title="Restart the time column at zero">Reset timer</button>
       <button id="pause" type="button" aria-pressed="false">Pause</button>
       <button id="clear" type="button">Clear</button>
@@ -607,21 +607,28 @@
 <div class="emulated-device">
           <label class="switch"><input id="mount-enable" type="checkbox">
             <span>Telescope<small>Emulates the mount's two motor controllers (0x10 and 0x11) on the local bus: go-to, direction buttons, tracking and sync, as CPWI and the hand controller use them. Starting it disconnects a real telescope, after asking.</small></span></label>
-          <p id="mount-locked" class="hint" hidden>The setup is fixed while the telescope runs. To change the mount, the wedge or the starting position, switch it off, change them, and switch it on again.</p>
+          <p id="mount-locked" class="hint" hidden>The setup is fixed while the telescope runs, except the polar axis knobs (inclination and rotation). To change the mount, the wedge, the starting position or the placement error, switch it off, change them, and switch it on again.</p>
           <div class="fields"><label class="field version">Mount<select id="mount-model"></select></label></div>
           <div class="fields">
             <label class="field version">AZM version (0x10)<input id="mount-azm-version" type="text" autocomplete="off"></label>
             <label class="field version">ALT version (0x11)<input id="mount-alt-version" type="text" autocomplete="off"></label>
           </div>
-          <label class="switch"><input id="mount-wedge" type="checkbox">
-            <span id="mount-wedge-title">On a wedge<small id="mount-wedge-hint"></small></span></label>
           <div class="fields">
             <label class="field version">Initial altitude (°)<input id="mount-alt" type="number" step="any" min="-90" max="90" value="0"></label>
             <label class="field version">Initial azimuth (°)<input id="mount-az" type="number" step="any" value="0"></label>
           </div>
-          <div class="fields" id="mount-wedge-fields">
-            <label class="field version" id="mount-inclination-label">Inclination (°)<input id="mount-inclination" type="number" step="any" min="0" max="90" value="40"></label>
-            <label class="field version">Rotation (°)<input id="mount-rotation" type="number" step="any" value="0"></label>
+          <label class="switch"><input id="mount-wedge" type="checkbox">
+            <span id="mount-wedge-title">On a wedge<small id="mount-wedge-hint"></small></span></label>
+          <div id="mount-wedge-fields">
+            <div class="fields">
+              <label class="field version" id="mount-inclination-label">Inclination (°)<input id="mount-inclination" type="number" step="0.05" min="0" max="90" value="40"></label>
+              <label class="field version">Rotation (°)<input id="mount-rotation" type="number" step="0.05" value="0"></label>
+            </div>
+            <div class="fields">
+              <label class="field version">Error in altitude (°)<input id="mount-error-alt" type="number" step="any" min="-10" max="10" value="0.5"></label>
+              <label class="field version">Error in azimuth (°)<input id="mount-error-az" type="number" step="any" min="-10" max="10" value="-1"></label>
+            </div>
+            <p class="hint">The polar axis really points at the inclination and rotation plus the placement error, as a real mount is never placed perfectly. Inclination and rotation are its adjustment knobs: change them while the telescope runs, and the mount tilts, as CPWI's polar alignment asks.</p>
           </div>
           <svg id="mount-sky" viewBox="-118 -118 236 236" role="img" aria-label="Where the emulated telescope points">
             <circle class="horizon" r="100"></circle><circle class="ring" r="66.7"></circle><circle class="ring" r="33.3"></circle>
@@ -1455,8 +1462,9 @@ function renderDew(dew) {
 // --- emulated telescope ---------------------------------------------------------
 
 let mountModels = [], mountFilled = false, mountRunning = false, mountPoll = null, mountTrail = [];
+// Fixed while the telescope runs; inclination and rotation stay free: they are the knobs.
 const mountFields = ["#mount-model", "#mount-azm-version", "#mount-alt-version", "#mount-wedge",
-                     "#mount-alt", "#mount-az", "#mount-inclination", "#mount-rotation"];
+                     "#mount-alt", "#mount-az", "#mount-error-alt", "#mount-error-az"];
 
 function mountSpec() { return mountModels.find((m) => m.key === $("#mount-model").value) || mountModels[0]; }
 
@@ -1495,6 +1503,7 @@ function renderMountEmulator(m) {
     $("#mount-wedge").checked = setup.wedge;
     $("#mount-alt").value = setup.initial_alt; $("#mount-az").value = setup.initial_az;
     $("#mount-inclination").value = setup.inclination; $("#mount-rotation").value = setup.rotation;
+    $("#mount-error-alt").value = setup.polar_error_alt; $("#mount-error-az").value = setup.polar_error_az;
     $("#mount-azm-version").value = m.azm_version || spec(setup.model).firmware;
     $("#mount-alt-version").value = m.alt_version || spec(setup.model).firmware;
     mountFilled = true;
@@ -1513,6 +1522,7 @@ async function startMount(confirmed) {
   const body = { enabled: true, model: $("#mount-model").value, wedge: $("#mount-wedge").checked,
                  initial_alt: number("#mount-alt"), initial_az: number("#mount-az"),
                  inclination: number("#mount-inclination"), rotation: number("#mount-rotation"),
+                 polar_error_alt: number("#mount-error-alt"), polar_error_az: number("#mount-error-az"),
                  azm_version: $("#mount-azm-version").value.trim(), alt_version: $("#mount-alt-version").value.trim(),
                  confirm: confirmed };
   try {
@@ -1647,7 +1657,8 @@ function atTop() { return $("#log").scrollTop <= FOLLOW_ZONE; }
 
 function updateLatestButton() {
   const button = $("#to-latest");
-  button.hidden = unseen === 0 || atTop();
+  // Shown or not, it keeps its place: appearing must not make the toolbar wrap and move the log.
+  button.style.visibility = unseen === 0 || atTop() ? "hidden" : "visible";
   button.textContent = `${unseen} newer message${unseen === 1 ? "" : "s"}`;
 }
 
@@ -1678,27 +1689,50 @@ function namedCell(row, [name, address]) {
   }
 }
 
+// Rows are added in batches, at most once per screen refresh: with an app such as
+// CPWI on the bus, packets arrive by the hundred each second, and measuring the
+// layout for each row separately made the page fall behind, its backlog of
+// unprocessed messages growing without end. Waiting rows are capped like the table.
+let incoming = [];
+let flushScheduled = false;
+
+function queueRow(item) {
+  incoming.push(item);
+  if (incoming.length > MAX_ROWS) incoming.splice(0, incoming.length - MAX_ROWS);
+  if (!flushScheduled) {
+    flushScheduled = true;
+    requestAnimationFrame(() => { flushScheduled = false; const items = incoming; incoming = []; addRows(items); });
+  }
+}
+
 // Newest rows go on top. While the reader is at the top the log follows them;
 // once they scroll down, inserted rows push the content down by exactly their
 // height, which is compensated so the rows being read stay where they are.
-function addRow(item) {
-  const log = $("#log");
+function addRows(items) {
+  if (!items.length) return;
+  const log = $("#log"), body = $("#traffic");
   const following = atTop();
-  const row = buildRow(item);
-  const body = $("#traffic");
-  const heightBefore = log.scrollHeight;
-  body.prepend(row);
+  const batch = document.createDocumentFragment();
+  let visible = 0;
+  for (const item of items.slice(-MAX_ROWS).reverse()) {  // newest first
+    const row = buildRow(item);
+    if (!row.hidden) visible += 1;
+    batch.append(row);
+  }
+  const heightBefore = following ? 0 : log.scrollHeight;
+  body.prepend(batch);
   if (following) {
     log.scrollTop = 0;
   } else {
-    // Measure the whole log rather than the row: row heights are fractional,
-    // and adding up rounded row heights would slowly drift.
+    // Measure the whole log rather than the rows: row heights are fractional,
+    // and adding up rounded row heights would slowly drift. Once per batch.
     log.scrollTop += log.scrollHeight - heightBefore;
-    if (!row.hidden) unseen += 1;
+    unseen += visible;
   }
-  while (body.rows.length > MAX_ROWS) body.deleteRow(-1);  // oldest are at the bottom
+  for (let extra = body.rows.length - MAX_ROWS; extra > 0; extra -= 1) body.deleteRow(-1);  // oldest at the bottom
   updateLatestButton();
 }
+
 
 function buildRow(item) {
   const row = document.createElement("tr");
@@ -1776,10 +1810,10 @@ function connectEvents() {
     showPosition(item);
     if (paused) {
       pending.push(item);
-      if (pending.length > MAX_ROWS) pending.shift();
-      $("#pause").textContent = `Resume (${pending.length} waiting)`;
+      if (pending.length > MAX_ROWS * 1.5) pending.splice(0, pending.length - MAX_ROWS);  // trimmed now and then, not per message
+      $("#pause").textContent = `Resume (${Math.min(pending.length, MAX_ROWS)} waiting)`;
     } else {
-      addRow(item);
+      queueRow(item);
     }
   };
 }
@@ -1825,6 +1859,11 @@ $("#dew-led-control").addEventListener("change", (e) => act("/api/dew/control", 
 $("#plate-solve").addEventListener("click", (e) => act("/api/starsense/solve", {}, e.currentTarget));
 $("#mount-model").addEventListener("change", () => applyMountModel(true));
 $("#mount-wedge").addEventListener("change", () => applyMountModel(false));
+for (const id of ["#mount-inclination", "#mount-rotation"]) {  // the knobs: live while it runs
+  $(id).addEventListener("change", () => {
+    if (mountRunning) act("/api/mount_emulator/adjust", { inclination: Number($("#mount-inclination").value), rotation: Number($("#mount-rotation").value) });
+  });
+}
 $("#mount-enable").addEventListener("change", (e) => {
   if (e.currentTarget.checked) startMount(false);
   else act("/api/mount_emulator", { enabled: false });
@@ -1847,13 +1886,13 @@ for (const button of document.querySelectorAll("[data-download]")) {
   button.addEventListener("click", () => download(button.dataset.download));
 }
 $("#clear-unknown").addEventListener("click", (e) => act("/api/discoveries/clear", {}, e.currentTarget));
-$("#clear").addEventListener("click", () => { $("#traffic").replaceChildren(); pending.length = 0; unseen = 0; updateLatestButton(); });
+$("#clear").addEventListener("click", () => { $("#traffic").replaceChildren(); pending.length = 0; incoming = []; unseen = 0; updateLatestButton(); });
 $("#log").addEventListener("scroll", () => { if (atTop()) unseen = 0; updateLatestButton(); }, { passive: true });
 $("#to-latest").addEventListener("click", () => { $("#log").scrollTop = 0; unseen = 0; updateLatestButton(); });
 $("#pause").addEventListener("click", (e) => {
   paused = !paused;
   e.currentTarget.setAttribute("aria-pressed", String(paused));
-  if (!paused) { pending.splice(0).forEach(addRow); }
+  if (!paused) addRows(pending.splice(0));  // one batch, not one layout per row
   e.currentTarget.textContent = paused ? "Resume" : "Pause";
 });
 for (const button of document.querySelectorAll(".pad [data-axis], .focus-row [data-axis]")) {

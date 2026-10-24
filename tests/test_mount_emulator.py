@@ -215,7 +215,7 @@ def test_alt_az_pointing_starts_at_the_initial_position_and_follows_the_motors()
 
 
 def test_on_a_wedge_the_first_axis_turns_around_the_pole():
-    emu, sent, clock = make(model="cpc", wedge=True, inclination=35, rotation=180, initial_alt=20, initial_az=150)
+    emu, sent, clock = make(model="cpc", wedge=True, inclination=35, rotation=180, initial_alt=20, initial_az=150, polar_error_alt=0, polar_error_az=0)
     pole = _vector(35, 180)
     start = emu.snapshot()
     distance = lambda s: math.degrees(math.acos(_dot(_vector(s["alt"], s["az"]), pole)))
@@ -269,3 +269,44 @@ def test_a_rate_0_move_stops_button_motion_but_not_a_go_to():
     stopped_at = degrees(ask(emu, sent, 0x10, 0x01))
     clock.t = 25
     assert degrees(ask(emu, sent, 0x10, 0x01)) == pytest.approx(stopped_at, abs=1e-6)
+
+
+
+def test_a_sync_changes_the_motor_reading_but_does_not_move_the_telescope():
+    """CPWI starts ASPA by setting both motors to 90 degrees; on a real mount nothing moves.
+    When this moved the emulated telescope, it ended up pointing below the horizon."""
+    emu, sent, clock = make(model="cgx-l", inclination=35, rotation=180, initial_alt=35, initial_az=180, polar_error_alt=0, polar_error_az=0)
+    before = (emu.snapshot()["alt"], emu.snapshot()["az"])
+    for motor in (0x10, 0x11):
+        assert ask(emu, sent, motor, 0x04, bytes.fromhex("400000")) == b"\x01"  # set position: 90 degrees
+        assert degrees(ask(emu, sent, motor, 0x01)) == pytest.approx(90.0)     # it now reads 90...
+    assert (emu.snapshot()["alt"], emu.snapshot()["az"]) == before              # ...and points where it did
+    ask(emu, sent, 0x10, 0x02, steps(100))                                      # go-tos use the new readings
+    clock.t = 30
+    assert degrees(ask(emu, sent, 0x10, 0x01)) == pytest.approx(100.0, abs=1e-3)
+    # the polar axis turned 10 degrees: still the same distance from the pole
+    pole = _vector(35, 180)
+    distance = lambda s: math.degrees(math.acos(_dot(_vector(s["alt"], s["az"]), pole)))
+    assert distance(emu.snapshot()) == pytest.approx(distance({"alt": before[0], "az": before[1]}), abs=1e-3)
+
+
+
+def test_a_placement_error_is_measured_and_turning_the_knobs_removes_it():
+    """The polar axis is off by the placement error; adjusting inclination and rotation while the
+    telescope runs moves it (and the telescope with it), as turning a real wedge's knobs."""
+    emu, sent, clock = make(model="cgx-l", inclination=35, rotation=180, initial_alt=10, initial_az=90,
+                            polar_error_alt=0.5, polar_error_az=-1.0)
+    assert emu.polar_axis() == pytest.approx((35.5, 179.0))              # off by the error
+    before = emu.snapshot()
+    ask(emu, sent, 0x10, 0x02, steps(30))                                  # a go-to, then the knobs move
+    clock.t = 10
+    reading = degrees(ask(emu, sent, 0x10, 0x01))
+    emu.adjust(34.5, 181.0)                                                 # compensate: the axis is now exact
+    assert emu.polar_axis() == pytest.approx((35.0, 180.0))
+    assert degrees(ask(emu, sent, 0x10, 0x01)) == pytest.approx(reading)   # the motors did not move...
+    assert (emu.snapshot()["alt"], emu.snapshot()["az"]) != (before["alt"], before["az"])  # ...the mount tilted
+    with pytest.raises(ValueError):
+        emu.adjust(95, 180)
+    altaz, sent2, _ = make(model="cpc")
+    with pytest.raises(ValueError, match="alt-az"):
+        altaz.adjust(35, 180)

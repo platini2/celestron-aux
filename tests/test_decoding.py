@@ -31,8 +31,8 @@ def test_starsense_v2_has_the_autoguider_commands_except_guiding():
 
     v2 = dict(catalog.commands_for(0xBD))
     autoguider = dict(catalog.commands_for(0xB9))
-    assert set(v2) - {0x08, 0x4B} == {c for c in autoguider if c >> 4 != 0x2}  # all but 0x20/0x23, plus 0x08, 0x4b
-    assert all(v2[c] == autoguider[c].replace("SSAG_", "SS2_") for c in v2 if c not in (0xFE, 0x07, 0x08, 0x4B))
+    assert set(v2) - {0x08, 0x13, 0x15, 0x16, 0x17, 0x4B} == {c for c in autoguider if c >> 4 != 0x2}  # plus the V2's own
+    assert all(v2[c] == autoguider[c].replace("SSAG_", "SS2_") for c in v2 if c not in (0xFE, 0x07, 0x08, 0x13, 0x15, 0x16, 0x17, 0x4B))
     assert catalog.device_name(0xBD) == "Starsense AutoAlign V2"
     assert describe_packet(AuxPacket(0x20, 0xBD, 0x20)).command == "Unknown"  # no guiding on the V2
 
@@ -210,6 +210,12 @@ def test_decoded_payloads_keep_their_hex_too():
     (0xBD, 0x20, 0x02, "070000000000000000", "Status 7, RA 0h00m00.00s, Dec 0\N{DEGREE SIGN}00'00.00\""),  # unknown: shown as is
     (0xBD, 0x20, 0x07, "00", "No"),   # real replies: before any calibration, and after
     (0xBD, 0x20, 0x07, "01", "Yes"),
+    # ASPA: start, the polar axis, the progress (your two examples, and a real camera's early reply)
+    (0x20, 0xBD, 0x13, "01", "Start"),
+    (0xBD, 0x20, 0x15, "040000000000000000", "No estimate yet"),
+    (0xBD, 0x20, 0x17, "016441200000000000", "Completion 100 %, uncertainty 10.00\N{DEGREE SIGN}"),
+    (0xBD, 0x20, 0x17, "016400000000000000", "Completion 100 %, uncertainty 0.00\N{DEGREE SIGN}"),
+    (0xBD, 0x20, 0x17, "000000000000000068", "Waiting (Completion 0 %, uncertainty 0.00\N{DEGREE SIGN})"),
     (0xBD, 0x20, 0x45, "4249ac41", "Rotation 50.42\N{DEGREE SIGN}"),   # real V2 replies
     (0xBD, 0x20, 0x45, "423e1c24", "Rotation 47.53\N{DEGREE SIGN}"),
     (0xB9, 0x0D, 0x45, "42e1790e", "Rotation 112.74\N{DEGREE SIGN}"),  # an AutoGuider example

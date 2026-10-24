@@ -507,6 +507,23 @@ def test_emulated_mount_runs_on_the_local_bus_and_never_next_to_a_telescope(web,
     assert connect(base, mount, scan=False)[0] == 200  # now a telescope may connect again
 
 
+def test_polar_axis_knobs_through_the_api(web):
+    session, base, _ = web
+    assert post(base, "/api/mount_emulator/adjust", {"inclination": 34, "rotation": 180})[0] == 400  # not running
+    setup = {"enabled": True, "model": "cgx", "initial_alt": 56, "initial_az": 0, "inclination": 34,
+             "rotation": 180, "polar_error_alt": 0.4, "polar_error_az": -0.8}
+    assert post(base, "/api/mount_emulator", setup)[0] == 200
+    assert session.app.mount_emulator.polar_axis() == pytest.approx((34.4, 179.2))
+    before = json.loads(get(base, "/api/mount_emulator/status")[1])
+    status, reply = post(base, "/api/mount_emulator/adjust", {"inclination": 33.6, "rotation": 180.8})
+    assert status == 200 and "33.6" in reply["message"]
+    assert session.app.mount_emulator.polar_axis() == pytest.approx((34.0, 180.0))  # compensated
+    after = json.loads(get(base, "/api/mount_emulator/status")[1])
+    assert (after["alt"], after["az"]) != (before["alt"], before["az"])              # the mount tilted
+    assert state(base)["mount_emulator"]["setup"]["inclination"] == 33.6              # remembered
+    assert post(base, "/api/mount_emulator/adjust", {"inclination": 120, "rotation": 0})[0] == 400
+
+
 def test_closing_the_local_bus_stops_the_emulated_mount(web):
     session, base, _ = web
     assert post(base, "/api/mount_emulator", {"enabled": True, "model": "avx"})[0] == 200

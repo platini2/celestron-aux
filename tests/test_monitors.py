@@ -1,4 +1,5 @@
 import io
+import time
 
 import pytest
 
@@ -209,5 +210,31 @@ def test_a_plate_solve_from_the_box():
         assert result["dec"] == pytest.approx(-3.6622, abs=1e-3)  # the first recorded point, without a mount emulator
         with pytest.raises(ValueError):
             app.plate_solver.solve(0x10)
+    finally:
+        app.close()
+
+
+
+def test_solves_by_others_are_shown_but_never_followed_up():
+    """During CPWI's ASPA the box used to ask the camera its own questions after every CPWI solve."""
+    from celestron_aux.protocol import AuxPacket
+
+    from celestron_aux.transport.local import LocalBusTransport
+
+    app = ScannerApp(LocalBusTransport(), AppConfig(save_starsense_images=False), stream=io.StringIO())
+    app.bus._inter_frame_delay = 0
+    seen = []
+    app.bus.subscribe(lambda event: seen.append(event.frame))
+    app.start(initial_scan=False)
+    app.starsense_v2.solve_time = 0.1
+    try:
+        app.enable_emulation("starsense")
+        app.bus.inject(AuxPacket(0x20, 0xBD, 0x01), AuxPacket(0x20, 0xBD, 0x01).encode(), origin="wifi:cpwi")
+        time.sleep(0.2)
+        app.bus.inject(AuxPacket(0x20, 0xBD, 0x02), AuxPacket(0x20, 0xBD, 0x02).encode(), origin="wifi:cpwi")
+        assert wait_until(lambda: app.plate_solver.snapshot().get("status") == "Solved")  # CPWI's solve is shown
+        time.sleep(0.6)
+        sent_by_scanner = [f for f in seen if isinstance(f, AuxPacket) and f.source == 0x2F and f.destination == 0xBD]
+        assert sent_by_scanner == []                                                     # and nothing was added
     finally:
         app.close()

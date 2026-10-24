@@ -320,6 +320,16 @@ class WebSession:
                 self._app.mount_emulator.configure(*self._mount)
             self.set_emulation("mount", True)
 
+    def adjust_mount(self, inclination: float, rotation: float) -> None:
+        """Turn the emulated wedge's or mount's knobs while it runs. ValueError if not possible."""
+        from dataclasses import replace
+        with self._lock:
+            if self._app is None or "mount" not in self._emulations:
+                raise ValueError("the emulated telescope is not running")
+            self._app.mount_emulator.adjust(inclination, rotation)
+            setup, azm, alt = self._mount
+            self._mount = (replace(setup, inclination=inclination, rotation=rotation % 360), azm, alt)
+
     def mount_state(self) -> dict:
         with self._lock:
             setup, azm_version, alt_version = self._mount
@@ -328,7 +338,9 @@ class WebSession:
         status = app.mount_emulator.snapshot() if app is not None and enabled else None
         return {"enabled": enabled, "setup": {"model": setup.model, "wedge": setup.wedge,
                                               "initial_alt": setup.initial_alt, "initial_az": setup.initial_az,
-                                              "inclination": setup.inclination, "rotation": setup.rotation},
+                                              "inclination": setup.inclination, "rotation": setup.rotation,
+                                              "polar_error_alt": setup.polar_error_alt,
+                                              "polar_error_az": setup.polar_error_az},
                 "azm_version": azm_version, "alt_version": alt_version, "status": status}
 
     def set_dew_conditions(self, **conditions: object) -> None:

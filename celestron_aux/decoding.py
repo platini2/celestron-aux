@@ -289,6 +289,37 @@ def _ss2_is_calibrated(data: bytes, is_reply: bool) -> str:
     return {0: "No", 1: "Yes"}.get(data[0], str(data[0])) if is_reply else data.hex()
 
 
+@_decodes([Addr.STARSENSE_CAMERA_V2], [0x13])
+def _ss2_set_aspa(data: bytes, is_reply: bool) -> str:
+    if is_reply:
+        return "OK" if data[0] == 0 else data.hex()
+    return {1: "Start", 0: "Stop", 4: "Adjust"}.get(data[0], data.hex())
+
+
+@_decodes([Addr.STARSENSE_CAMERA_V2], [0x15])
+def _ss2_aspa_pole(data: bytes, is_reply: bool) -> str:
+    if data[0] == _SOLVED and len(data) >= 9:
+        return f"Polar axis {_ra_dec(data[1:])}"
+    return "No estimate yet" if data[0] == _FAILED else f"Status {data[0]}"
+
+
+@_decodes([Addr.STARSENSE_CAMERA_V2], [0x16])
+def _ss2_aspa_error(data: bytes, is_reply: bool) -> str:
+    # Status, then the altitude and azimuth errors of the polar axis in degrees (float32).
+    if data[0] != _SOLVED or len(data) < 9:
+        return "No measurement" if not any(data) else f"Status {data[0]}"
+    alt, azm = struct.unpack(">ff", data[1:9])
+    return f"Altitude error {alt * 60:+.2f}', azimuth error {azm * 60:+.2f}'"
+
+
+@_decodes([Addr.STARSENSE_CAMERA_V2], [0x17])
+def _ss2_aspa_progress(data: bytes, is_reply: bool) -> str:
+    # Status, completion (0-100), uncertainty in degrees (float32), then three bytes not understood.
+    _require(data, 6)
+    text = f"Completion {data[1]} %, uncertainty {struct.unpack('>f', data[2:6])[0]:.2f}\N{DEGREE SIGN}"
+    return text if data[0] == _SOLVED else f"Waiting ({text})"
+
+
 @_decodes(_SSAG_AND_V2, [0x45])
 def _ssag_image_rotation(data: bytes, is_reply: bool) -> str:
     # The angle of the camera image on the sky, as a big-endian float32 in degrees.

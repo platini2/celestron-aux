@@ -466,11 +466,13 @@ class PlateSolver(DeviceMonitor):
             status = data[0]
             if status == 0:
                 return True  # still solving
+            ours = self._solving_since is not None  # a solve this box started, not CPWI's
             self._solving_since = None
             if status == 1:
                 ra, dec = (math.degrees(v) for v in struct.unpack(">ff", data[1:9]))
                 self._result = {"status": "Solved", "ra": ra % 360, "dec": dec}
-                self._send_later([(0x4B, b""), (0x45, b"")])
+                if ours:  # never add traffic to someone else's alignment (CPWI's ASPA)
+                    self._send_later([(0x4B, b""), (0x45, b"")])
             else:
                 self._result = {"status": "Failed" if status == 4 else f"Status {status}"}
             return True

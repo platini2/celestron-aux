@@ -427,7 +427,8 @@ class WebApi:
             setup = MountSetup(model=str(body.get("model") or current["model"]),
                                wedge=_bool(body, "wedge", default=current["wedge"]),
                                initial_alt=number("initial_alt"), initial_az=number("initial_az"),
-                               inclination=number("inclination"), rotation=number("rotation"))
+                               inclination=number("inclination"), rotation=number("rotation"),
+                               polar_error_alt=number("polar_error_alt"), polar_error_az=number("polar_error_az"))
             self.session.set_mount(True, setup, str(body.get("azm_version") or "") or None,
                                    str(body.get("alt_version") or "") or None, confirm=_bool(body, "confirm", default=False))
         except NeedsConfirmation as exc:
@@ -480,6 +481,14 @@ class WebApi:
         except MotionRefused as exc:
             raise ApiError(503, str(exc)) from exc
         return {"message": "Plate solving: it takes a few seconds."}
+
+    def mount_adjust(self, body: Mapping[str, Any]) -> Json:
+        """Turn the emulated wedge's or mount's adjustment knobs while it runs."""
+        try:
+            self.session.adjust_mount(float(body["inclination"]), float(body["rotation"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ApiError(400, f"{str(exc).strip(chr(39)).capitalize()}.") from exc
+        return {"message": f"Polar axis knobs: inclination {float(body['inclination']):g}°, rotation {float(body['rotation']):g}°."}
 
     def mount_status(self) -> Json:
         """Where the emulated telescope points, polled often by the page while it runs."""
