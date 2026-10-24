@@ -71,7 +71,7 @@ celestron-aux --web 0.0.0.0:8080              # reachable from a phone or tablet
 1. Start the program with `--web`. It prints the address to open:
 
    ```
-   celestron-aux 1.1.0
+   celestron-aux 1.1.1
    Copyright © 2021-2026 Patricio Latini
    Web interface: http://localhost:8080/  (press Ctrl+C to stop)
    Open it and choose how to connect to the mount.

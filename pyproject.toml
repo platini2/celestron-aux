@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "celestron-aux"
-version = "1.1.0"
+version = "1.1.1"
 description = "Celestron AUX bus scanner, monitor and protocol toolkit"
 readme = "README.md"
 requires-python = ">=3.9"
