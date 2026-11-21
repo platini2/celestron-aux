@@ -250,3 +250,68 @@ def test_lua_decoders_match_python(tmp_path, monkeypatch):
             mismatches.append(f"{packet.source:02x}->{packet.destination:02x} cmd {packet.command:02x} "
                               f"data {packet.data.hex()}: python {value!r}/{malformed}, lua {lua_value!r}/{lua_malformed}")
     assert not mismatches, f"{len(mismatches)} of {len(packets)} differ:\n" + "\n".join(mismatches[:40])
+
+
+# --- resynchronising after a bad checksum, as the Python parser does ----------
+
+def resync_stream():
+    """Bytes from the mount: a broken header whose length byte (0x26) swallows real
+    frames, a StarSense frame with a bad checksum, then good frames. Seen on a
+    real Wi-Fi capture where a TCP segment was lost."""
+    good = [AuxPacket(0x11, 0x20, 0x01, b"\x00\x00\x00"), AuxPacket(0x17, 0x20, 0x12, bytes([1, 1, 0, 0, 0, 5])),
+            AuxPacket(0x12, 0x20, 0x01, b"\x00\x2e\xcd"), AuxPacket(0x17, 0x20, 0x11, b"\x11"),
+            AuxPacket(0x10, 0x20, 0xFE, b"\x06\x13"), AuxPacket(0xB0, 0x20, 0x37, b"\x00")]
+    bad_star_list = bytearray(StarSenseFrame(bytes(range(16))).encode())
+    bad_star_list[-1] ^= 0xFF
+    tail = [AuxPacket(0x10, 0x20, 0x01, b"\x40\x00\x00"), StarSenseFrame(bytes(range(8))).encode()]
+    data = b"\x3b\x26\x00\x2e\xcd\xcc" + b"".join(p.encode() for p in good) + bytes(bad_star_list)
+    data += tail[0].encode() + tail[1]
+    return data
+
+
+def python_frames(data):
+    """(names of good AUX frames, StarSense star counts, corrupt frames) from the Python parser."""
+    from celestron_aux.decoding import describe_packet
+    from celestron_aux.protocol.framing import FrameParser
+    from celestron_aux.protocol.packets import CorruptFrame
+
+    names, stars, corrupt = [], [], 0
+    for parsed in FrameParser().feed(data):
+        if isinstance(parsed.frame, AuxPacket):
+            names.append(describe_packet(parsed.frame).command)
+        elif isinstance(parsed.frame, StarSenseFrame):
+            stars.append(len(parsed.frame.payload) // 8)
+        elif isinstance(parsed.frame, CorruptFrame):
+            corrupt += 1
+    return names, stars, corrupt
+
+
+def dissector_frames(tshark, pcap, checksum_field, extra=()):
+    result = subprocess.run([tshark, *extra, "-r", str(pcap), "-Y", "celestron_aux", "-T", "fields",
+                             "-E", "occurrence=a", "-E", "aggregator=~", "-e", "celestron_aux.cmd_name",
+                             "-e", "celestron_aux.starsense.stars", "-e", checksum_field],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    names, stars, checks = [], [], []
+    for line in result.stdout.splitlines():
+        cmd, star, check = (line.split("\t") + ["", ""])[:3]
+        names += [n for n in cmd.split("~") if n]
+        stars += [int(n) for n in star.split("~") if n]
+        checks += [c for c in check.split("~") if c]
+    return names, stars, checks
+
+
+@pytest.mark.skipif(shutil.which("tshark") is None, reason="Wireshark's tshark is not installed")
+def test_lua_resyncs_after_a_bad_checksum_like_python(tmp_path):
+    data = resync_stream()
+    expected_names, expected_stars, expected_corrupt = python_frames(data)
+    assert expected_corrupt == 2 and len(expected_names) == 7 and expected_stars == [1]
+    pcap = tmp_path / "resync.pcap"
+    pcap.write_bytes(tcp_pcap([(True, data[:20]), (True, data[20:])]))
+    wireshark.write_dissector(tmp_path / "aux.lua")
+    names, stars, checks = dissector_frames("tshark", pcap, "celestron_aux.checksum_ok",
+                                            ["-X", f"lua_script:{tmp_path / 'aux.lua'}"])
+    bad = sum(1 for c in checks if c in ("0", "False", "false"))
+    good_names = names[1:]  # the first "frame" is the broken header itself (bad checksum)
+    assert good_names == expected_names and bad == expected_corrupt
+    assert stars == [2, 1]  # the bad star list is shown (flagged), then the good one

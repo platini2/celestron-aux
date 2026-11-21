@@ -1574,6 +1574,32 @@ frame_length(tvbuff_t *tvb, unsigned offset)
     return NO_FRAME;
 }
 
+/* The checksum a frame should end with: the two's complement of the sum of
+ * its bytes after the preamble (unescaped, for a StarSense frame). */
+static uint8_t
+expected_checksum(tvbuff_t *tvb, unsigned offset, unsigned size)
+{
+    uint32_t sum = 0;
+
+    if (tvb_get_uint8(tvb, offset) == AUX_PREAMBLE) {
+        for (unsigned i = offset + 1; i < offset + size - 1; i++)
+            sum += tvb_get_uint8(tvb, i);
+    } else {
+        unsigned position = offset + 1;
+        uint8_t byte;
+
+        while (position < offset + size - 1 && starsense_byte(tvb, &position, &byte))
+            sum += byte;
+    }
+    return (uint8_t)((0x100 - (sum & 0xff)) & 0xff);
+}
+
+static bool
+checksum_ok(tvbuff_t *tvb, unsigned offset, unsigned size)
+{
+    return tvb_get_uint8(tvb, offset + size - 1) == expected_checksum(tvb, offset, size);
+}
+
 static char *
 dissect_aux_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned key)
 {
@@ -1586,7 +1612,6 @@ dissect_aux_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned
     const char *name = command_name(device, cmd);
     char *value = NULL;
     bool unexpected = false;
-    uint32_t sum = 0;
     const char *shown;
     proto_item *ti;
 
@@ -1618,10 +1643,8 @@ dissect_aux_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned
         }
     }
 
-    for (unsigned i = 1; i < length + 2; i++)
-        sum += tvb_get_uint8(tvb, i);
     proto_tree_add_checksum(tree, tvb, length + 2, hf_celestron_aux_checksum, hf_celestron_aux_checksum_status,
-                            &ei_celestron_aux_bad_checksum, pinfo, (0x100 - (sum & 0xff)) & 0xff, ENC_NA,
+                            &ei_celestron_aux_bad_checksum, pinfo, expected_checksum(tvb, 0, length + 3), ENC_NA,
                             PROTO_CHECKSUM_VERIFY);
 
     /* As celestron-aux's own log: the decoded value, else the data in hex. */
@@ -1633,16 +1656,17 @@ dissect_aux_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned
     else
         shown = "";
     return wmem_strdup_printf(pinfo->pool, "%s -> %s  %s (0x%02x)%s%s%s", device_name(src), device_name(dst),
-                              name, cmd, *shown ? " " : "", shown,
-                              tvb_get_uint8(tvb, length + 2) == ((0x100 - (sum & 0xff)) & 0xff) ? "" : "  [bad checksum]");
+                              name, cmd, *shown ? " " : "", shown, checksum_ok(tvb, 0, length + 3) ? "" : "  [bad checksum]");
 }
 
 static char *
 dissect_starsense_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
+    unsigned size = tvb_captured_length(tvb);
     unsigned position = 1;
     uint32_t payload = 0;
     uint8_t byte;
+    bool ok = checksum_ok(tvb, 0, size);
 
     proto_tree_add_item(tree, hf_celestron_aux_preamble, tvb, 0, 1, ENC_NA);
     for (int i = 0; i < 4; i++) {
@@ -1653,8 +1677,12 @@ dissect_starsense_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     proto_tree_add_uint(tree, hf_celestron_aux_starsense_length, tvb, 1, position - 1, payload);
     proto_item_set_generated(proto_tree_add_uint(tree, hf_celestron_aux_starsense_stars, tvb, 1, position - 1,
                                                  payload / 8));
-    proto_tree_add_item(tree, hf_celestron_aux_starsense_data, tvb, position, -1, ENC_NA);
-    return wmem_strdup_printf(pinfo->pool, "StarSense star list, %u stars", payload / 8);
+    proto_tree_add_item(tree, hf_celestron_aux_starsense_data, tvb, position, size - 1 - position, ENC_NA);
+    proto_tree_add_checksum(tree, tvb, size - 1, hf_celestron_aux_checksum, hf_celestron_aux_checksum_status,
+                            &ei_celestron_aux_bad_checksum, pinfo, expected_checksum(tvb, 0, size), ENC_NA,
+                            PROTO_CHECKSUM_VERIFY);
+    return wmem_strdup_printf(pinfo->pool, "StarSense star list, %u stars%s", payload / 8,
+                              ok ? "" : "  [bad checksum]");
 }
 
 /* Dissects every frame in tvb. Over TCP a frame can span segments: then it
@@ -1707,7 +1735,10 @@ dissect_frames(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool can_des
                 text = dissect_starsense_frame(frame, pinfo, frame_tree);
             wmem_strbuf_append_printf(info, "%s%s", any ? " | " : "", text);
             any = true;
-            offset += size;
+            /* After a bad checksum, move on one byte only, as celestron-aux's own
+             * parser does: the "frame" may be noise whose length byte swallowed
+             * real frames, which are found again by resynchronising. */
+            offset += checksum_ok(tvb, offset, size) ? (unsigned)size : 1;
         }
     }
     /* Columns only for complete frames: a segment holding just the start of a

@@ -17,6 +17,10 @@ to Cisco's Skinny protocol. To decode a Wi-Fi capture, either:
   `--enable-heuristic celestron_aux_tcp`). It recognises a TCP stream that
   starts with a complete AUX packet with a valid checksum, on any port.
 
+For Wi-Fi captures, also turn on **Preferences > Protocols > TCP > Reassemble
+out-of-order segments** (`-o tcp.reassemble_out_of_order:TRUE`): retransmitted
+segments often carry new bytes too, and without it their frames are not shown.
+
 pcap files from `celestron-aux --export-pcap` use link type USER0: map it under
 **Preferences > Protocols > DLT_USER** (DLT 147, payload protocol `celestron_aux`).
 

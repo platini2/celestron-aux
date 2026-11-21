@@ -127,3 +127,18 @@ def test_c_dissector_survives_random_bytes(tmp_path):
     pcap.write_bytes(wireshark.pcap_bytes(records))
     result = run_tshark(pcap, "-V")
     assert result.returncode == 0, result.stderr.decode()[-2000:]
+
+
+@needs_tshark
+def test_c_resyncs_after_a_bad_checksum_like_python(tmp_path):
+    from .test_wireshark import dissector_frames, python_frames, resync_stream, tcp_pcap
+
+    data = resync_stream()
+    expected_names, _, expected_corrupt = python_frames(data)
+    pcap = tmp_path / "resync.pcap"
+    pcap.write_bytes(tcp_pcap([(True, data[:20]), (True, data[20:])]))
+    names, stars, checks = dissector_frames(str(Path(TSHARK).expanduser()), pcap, "celestron_aux.checksum.status",
+                                            ["-o", USER0, "-d", "tcp.port==2000,celestron_aux"])
+    assert names[1:] == expected_names
+    assert sum(1 for c in checks if c == "0") == expected_corrupt
+    assert stars == [2, 1]

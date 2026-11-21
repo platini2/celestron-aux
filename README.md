@@ -198,7 +198,10 @@ The dissector decodes:
   a SkyPortal or Evolution Wi-Fi module, and the AUX stream on TCP port 2000 is
   decoded, with frames split across TCP segments put back together. The port
   can be changed in **Preferences > Protocols > CELESTRON_AUX**. This also
-  covers apps talking to this program's Wi-Fi dongle emulator. Capture on the
+  covers apps talking to this program's Wi-Fi dongle emulator. Turn on
+  **Preferences > Protocols > TCP > Reassemble out-of-order segments**: Wi-Fi
+  captures often have retransmissions that also carry new bytes, and without it
+  Wireshark does not show the frames in them. Capture on the
   computer that runs the app (its Wi-Fi interface): a computer normally cannot
   see the traffic between a phone and the module. Capturing needs Npcap on
   Windows (the Wireshark installer offers it) and, on a Mac, the ChmodBPF

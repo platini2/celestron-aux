@@ -313,7 +313,25 @@ local function starsense_byte(tvb, index)
   return byte, index + 1
 end
 
+-- The checksum a whole frame at offset should end with: the two's complement of
+-- the sum of its bytes after the preamble (unescaped, for a StarSense frame).
+local function expected_checksum(tvb, offset, size)
+  if tvb(offset, 1):uint() == 0x3b then return aux_checksum(tvb, offset + 1, size - 2) end
+  local sum, index, byte = 0, offset + 1, 0
+  while index < offset + size - 1 do
+    byte, index = starsense_byte(tvb, index)
+    if byte == nil then break end
+    sum = sum + byte
+  end
+  return (256 - sum % 256) % 256
+end
+
+local function checksum_ok(tvb, offset, size)
+  return tvb(offset + size - 1, 1):uint() == expected_checksum(tvb, offset, size)
+end
+
 local function dissect_starsense(tvb, tree)
+  local size = tvb:len()
   tree:add(f.preamble, tvb(0, 1))
   local value, index = 0, 1
   for _ = 1, 4 do
@@ -325,8 +343,15 @@ local function dissect_starsense(tvb, tree)
   tree:append_text(string.format(", StarSense star list, %d stars", stars))
   tree:add(f.ss_length, tvb(1, index - 1), value)
   tree:add(f.ss_stars, tvb(1, index - 1), stars):set_generated()
-  tree:add(f.ss_data, tvb(index))
-  return string.format("StarSense star list, %d stars", stars)
+  if size - 1 > index then tree:add(f.ss_data, tvb(index, size - 1 - index)) end
+  local expected = expected_checksum(tvb, 0, size)
+  local ok = tvb(size - 1, 1):uint() == expected
+  local item = tree:add(f.checksum, tvb(size - 1, 1))
+  tree:add(f.checksum_ok, tvb(size - 1, 1), ok):set_generated()
+  if not ok then
+    item:add_proto_expert_info(bad_checksum, string.format("Expected 0x%02x", expected))
+  end
+  return string.format("StarSense star list, %d stars%s", stars, ok and "" or "  [bad checksum]")
 end
 
 -- Size of the frame starting at offset: a number of bytes, nil when more bytes
@@ -396,7 +421,10 @@ local function dissect_frames(tvb, pinfo, root, can_desegment)
       else
         infos[#infos + 1] = dissect_starsense(frame, tree)
       end
-      offset = offset + size
+      -- After a bad checksum, move on one byte only, as celestron-aux's own parser
+      -- does: the "frame" may be noise whose length byte swallowed real frames,
+      -- which are found again by resynchronising.
+      if checksum_ok(tvb, offset, size) then offset = offset + size else offset = offset + 1 end
     end
   end
   if #infos > 0 then

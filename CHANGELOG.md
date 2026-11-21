@@ -11,6 +11,15 @@
   decoding with Python's on over 27,000 payloads, and try it on random bytes,
   given a tshark built with it (`CELESTRON_AUX_TSHARK`). See wireshark/README.md.
 
+### Fixed
+
+- The Wireshark dissectors (Lua and C) now resynchronise after a bad checksum
+  as celestron-aux's own parser does, moving on one byte instead of the whole
+  "frame". On a real Wi-Fi capture with a lost TCP segment, a broken header's
+  length byte had swallowed four real frames. They also check StarSense frame
+  checksums now. On that capture, both dissectors and Python agree on every
+  one of its 1,056 frames.
+
 ## 1.2.0
 
 ### Added
