@@ -1652,6 +1652,7 @@ function drawStars(item) {
 // --- traffic log ------------------------------------------------------------
 
 let lastSeq = 0;
+let currentRun = null;  // the program run the shown traffic belongs to
 let paused = false;
 const pending = [];
 const FOLLOW_ZONE = 24;  // px from the top that still counts as "at the top"
@@ -1803,11 +1804,25 @@ function applyFilter(row) {
   row.hidden = (Boolean(text) && !row.dataset.text.includes(text)) || (onlyUnknown && row.dataset.unknown !== "1");
 }
 
+// The program was restarted while this page stayed open: its sequence numbers start
+// again, so forget the old ones (and the old rows) instead of skipping the new events.
+function startNewRun() {
+  lastSeq = 0;
+  incoming = [];
+  pending.length = 0;
+  $("#traffic").replaceChildren();
+  if (paused) $("#pause").textContent = "Resume (0 waiting)";
+}
+
 function connectEvents() {
   const events = new EventSource("/api/events");
+  events.addEventListener("hello", (message) => {
+    const { run } = JSON.parse(message.data);
+    if (currentRun !== null && run !== currentRun) startNewRun();
+    currentRun = run;
+  });
   events.onmessage = (message) => {
     const item = JSON.parse(message.data);
-    if (item.seq === 1 && lastSeq > 0) { lastSeq = 0; $("#traffic").replaceChildren(); } // server restarted
     if (item.seq <= lastSeq) return; // already shown before a reconnect
     lastSeq = item.seq;
     if (item.kind === "stars") drawStars(item);

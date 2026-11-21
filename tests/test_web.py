@@ -68,13 +68,25 @@ def speed_up(session):
 
 
 def read_events(base, count):
-    items = []
+    """The first ``count`` traffic events (named events such as ``hello`` are skipped)."""
+    items, named = [], False
     with urllib.request.urlopen(base + "/api/events", timeout=5) as stream:
         while len(items) < count:
             line = stream.readline().decode()
-            if line.startswith("data: "):
+            if line.startswith("event: "):
+                named = True
+            elif line.startswith("data: ") and not named:
                 items.append(json.loads(line[6:]))
+            elif not line.strip():
+                named = False
     return items
+
+
+def read_hello(base):
+    with urllib.request.urlopen(base + "/api/events", timeout=5) as stream:
+        first, second = stream.readline().decode(), stream.readline().decode()
+    assert first == "event: hello\n"
+    return json.loads(second[len("data: "):])["run"]
 
 
 # --- command line -------------------------------------------------------------
@@ -625,3 +637,16 @@ def test_catalog_command_line_option(tmp_path):
 
 def test_listen_only_command_line_flag():
     assert parse_args(["wifi", "1.2.3.4", "--listen-only"]).listen_only is True
+
+
+def test_stream_starts_by_naming_the_run(web, tmp_path):
+    # A page left open across a restart of the program sees a different run and
+    # starts a fresh traffic log, instead of skipping the new (renumbered) events.
+    _, base, _ = web
+    run = read_hello(base)
+    assert run and read_hello(base) == run  # the same run on every reconnect
+    other = WebSession(AppConfig(image_dir=tmp_path, keepalive=False))
+    try:
+        assert other.feed.run_id != run
+    finally:
+        other.close()

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Web interface: after celestron-aux was restarted while the page stayed open,
+  the traffic log could stay empty until the page was reloaded, while the
+  detected devices still updated. The page skipped events whose numbers it had
+  already seen, and a new run numbers them from 1 again. The live stream now
+  starts by naming the run, and the page starts a fresh log when it changes.
+
 ## 1.2.1
 
 ### Fixed

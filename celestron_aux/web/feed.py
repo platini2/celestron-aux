@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import uuid
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 
@@ -68,6 +69,9 @@ class TrafficFeed:
         self._subscribers: Set["queue.Queue[Optional[Item]]"] = set()
         self._seq = 0
         self._latest_stars: Optional[Item] = None
+        # Sequence numbers restart with the program. A page left open across a restart
+        # tells the runs apart by this id, sent first on every stream (see WebServer).
+        self.run_id = uuid.uuid4().hex[:12]
 
     def __call__(self, event: BusEvent) -> None:
         with self._lock:

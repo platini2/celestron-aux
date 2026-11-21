@@ -6,7 +6,8 @@ Routes:
 * ``GET /api/state``, ``/api/ports``, ``/api/discoveries`` and
   ``/api/commands?device=N`` return JSON.
 * ``GET /api/download/csv|raw|unknown`` downloads a log file.
-* ``GET /api/events`` streams bus traffic as Server-Sent Events.
+* ``GET /api/events`` streams bus traffic as Server-Sent Events, after a ``hello``
+  event naming this run of the program (``{"run": id}``).
 * ``POST /api/replay?name=...&speed=...`` replays a raw capture sent as the body.
 * ``POST /api/...`` performs actions (see ``POST_ROUTES``).
 
@@ -250,6 +251,11 @@ def _make_handler(server: WebServer) -> type:
             self.end_headers()
             subscriber, backlog = server.feed.subscribe()
             try:
+                # First, which run of the program this is: the page starts a fresh
+                # traffic log when it changes (the sequence numbers start again).
+                hello = json.dumps({"run": server.feed.run_id}, separators=(",", ":"))
+                self.wfile.write(f"event: hello\ndata: {hello}\n\n".encode("utf-8"))
+                self.wfile.flush()
                 for item in backlog:
                     self._write_event(item)
                 while not server._stopping.is_set():
