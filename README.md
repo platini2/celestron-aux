@@ -219,6 +219,10 @@ so export it again after naming something.
 In the web interface, the Recording panel offers the raw capture as pcap and
 the dissector as downloads.
 
+[wireshark/](wireshark/README.md) also holds the same dissector written in C
+for Wireshark's own source tree, ready to be contributed upstream, with how to
+build, test and submit it.
+
 ## Protocol reference
 
 [docs/protocol.md](docs/protocol.md) lists every device and command

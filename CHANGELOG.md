@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `wireshark/packet-celestron-aux.c`: the dissector in C for Wireshark's source
+  tree (GPL-2.0-or-later, as Wireshark requires), with every payload decoder
+  ported. Its tables are generated from the catalog
+  (`python -m celestron_aux.wireshark_c`), and tests check them, compare its
+  decoding with Python's on over 27,000 payloads, and try it on random bytes,
+  given a tshark built with it (`CELESTRON_AUX_TSHARK`). See wireshark/README.md.
+
 ## 1.2.0
 
 ### Added
