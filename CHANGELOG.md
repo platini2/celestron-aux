@@ -6,6 +6,23 @@
 
 - Releases include `celestron-aux-<version>.zip`, the source in a folder of
   that name, installable with `pip install` without Git. 1.2.0 has it too.
+- The Wireshark dissector decodes payloads like celestron-aux itself: every
+  payload decoder has a Lua port (positions, RA/Dec, plate solves, polar
+  alignment, GPS, dew heater, battery, lights, focuser, versions and mount
+  models), shown in the Info column and as `celestron_aux.value`. A test runs
+  both on over 27,000 payloads and requires identical text.
+
+### Changed
+
+- In Wireshark, a TCP segment that only carries part of a frame stays "TCP"
+  in the Protocol column; the frame is decoded on the segment that completes it.
+
+### Fixed
+
+- A payload holding an infinite angle (from corrupted bytes) raised
+  OverflowError in the decoder instead of showing "unexpected format".
+  Absurd angles (over a billion degrees) and calibration times outside the
+  years 1970-9999 are also shown as unexpected format, on every system.
 
 ## 1.2.0
 

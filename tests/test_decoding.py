@@ -232,3 +232,25 @@ def test_truncated_payload_is_flagged_not_raised():
         description = describe_packet(packet)
         assert description.value == "" and description.malformed
         assert description.text == f"{packet.data.hex()} (unexpected format)"
+
+
+@pytest.mark.parametrize("payload", [
+    "01" + "3f800000" + "7f800000",  # plate solve with an infinite Dec
+    "01" + "3f800000" + "ff800000",  # minus infinity
+    "01" + "3f800000" + "7f7fffff",  # the largest float32: far beyond any angle
+])
+def test_impossible_angles_are_unexpected_format_not_a_crash(payload):
+    description = describe_packet(AuxPacket(0xBD, 0x20, 0x02, bytes.fromhex(payload)))
+    assert description.malformed and description.value == ""
+    assert description.text.endswith("(unexpected format)")
+
+
+def test_impossible_calibration_times_are_unexpected_format(monkeypatch):
+    from celestron_aux import decoding
+
+    monkeypatch.setattr(decoding, "_last_calibration_slot", None)
+    describe_packet(AuxPacket(0x20, 0xBD, 0x08, b"\x05"))  # ask for slot 5, the time
+    assert describe_packet(AuxPacket(0xBD, 0x20, 0x08, bytes.fromhex("7f7fffff"))).malformed
+    assert describe_packet(AuxPacket(0xBD, 0x20, 0x08, bytes.fromhex("c2c80000"))).malformed  # -100 s
+    reply = describe_packet(AuxPacket(0xBD, 0x20, 0x08, bytes.fromhex("4ecaa1c2")))
+    assert reply.value.startswith("Slot 5: calibration time, 2023-")

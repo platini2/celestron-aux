@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 
 def to_signed(value: int, bits: int) -> int:
     """Interpret ``value`` as a two's-complement integer of ``bits`` bits."""
@@ -24,8 +26,16 @@ def degrees_to_bam(degrees: float, size: int = 3) -> bytes:
     return (round(degrees / 360.0 * full_circle) % full_circle).to_bytes(size, "big")
 
 
+MAX_ANGLE = 1e9  # degrees; larger values come from garbage bytes, not from a real angle
+
+
 def format_dms(degrees: float) -> str:
-    """Format an angle as signed degrees, minutes and seconds (0.01" resolution)."""
+    """Format an angle as signed degrees, minutes and seconds (0.01" resolution).
+
+    NaN, infinite and absurdly large angles (beyond MAX_ANGLE) raise ValueError.
+    """
+    if not math.isfinite(degrees) or abs(degrees) > MAX_ANGLE:
+        raise ValueError(f"not an angle: {degrees!r}")
     sign = "-" if degrees < 0 else ""
     hundredths = round(abs(degrees) * 360_000)
     whole_degrees, remainder = divmod(hundredths, 360_000)

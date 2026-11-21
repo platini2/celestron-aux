@@ -204,13 +204,17 @@ The dissector decodes:
   Windows (the Wireshark installer offers it) and, on a Mac, the ChmodBPF
   package that comes with Wireshark.
 
-Each frame shows its source, destination and command names, its data, and
-whether its checksum is right. Filter with `celestron_aux`, for example
-`celestron_aux.cmd_name == "MTR_GOTO_FAST"` or `celestron_aux.src == 0x10`.
-The dissector carries the names known when it was exported, your own catalog
-names included, so export it again after naming something. Payload values
-(positions, coordinates, firmware versions) are decoded by celestron-aux, not
-by the dissector.
+Each frame shows its source, destination and command names, its data decoded
+the way celestron-aux decodes it (positions, coordinates, plate solves, firmware
+versions, mount models, GPS time, dew heater readings and every other payload
+the program understands), and whether its checksum is right. Data that does not
+fit its command's known format is flagged "unexpected format". Filter with
+`celestron_aux`, for example `celestron_aux.cmd_name == "MTR_GOTO_FAST"`,
+`celestron_aux.src == 0x10` or `celestron_aux.value contains "Solved"`. The
+filter `celestron_aux` also hides the TCP segments that only carry part of a
+frame: the frame is decoded on the segment that completes it. The dissector
+carries the names known when it was exported, your own catalog names included,
+so export it again after naming something.
 
 In the web interface, the Recording panel offers the raw capture as pcap and
 the dissector as downloads.

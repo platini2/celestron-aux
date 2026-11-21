@@ -74,7 +74,7 @@ def decode_payload(packet: AuxPacket, subject: int) -> Tuple[str, bool]:
         return "", False
     try:
         return decoder(packet.data, packet.source == subject), False
-    except (IndexError, ValueError, struct.error):
+    except (IndexError, ValueError, OverflowError, struct.error):
         return "", True
 
 
@@ -343,6 +343,7 @@ _RA_SLOTS, _DEC_SLOTS, _ROTATION_SLOT, _TIME_SLOT = (0, 2), (1, 3), 4, 5
 # A reply does not say which slot it holds, so the decoder remembers the slot that
 # was requested last. CPWI asks for one slot and gets its reply before the next.
 _last_calibration_slot: Optional[int] = None
+_MAX_TIMESTAMP = 253402300800  # the year 10000, beyond what datetime can show
 
 
 def _slot_name(slot: int) -> str:
@@ -363,6 +364,8 @@ def _ss2_calibration_data(data: bytes, is_reply: bool) -> str:
     elif slot == _TIME_SLOT or (slot is None and value > 1e9):
         # Unix seconds, stored with a resolution of about 2 minutes. On real hardware
         # it read exactly one day after the calibration.
+        if not 0 <= value < _MAX_TIMESTAMP:
+            raise ValueError(f"not a time: {value!r}")  # the same on every system
         when = datetime.fromtimestamp(value, timezone.utc)
         text = f"{when:%Y-%m-%d %H:%M} UTC ({value:.0f})"
     elif slot in _RA_SLOTS:
