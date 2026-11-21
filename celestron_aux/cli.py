@@ -441,7 +441,7 @@ def _run_exports(args: argparse.Namespace) -> int:
         if args.export_dissector:
             wireshark.write_dissector(Path(args.export_dissector))
             print(f"Wrote {args.export_dissector}. Copy it into Wireshark's personal Lua plugins folder "
-                  "(Help > About Wireshark > Folders).")
+                  "(shown in Wireshark under About Wireshark > Folders).")
         if args.export_docs:
             protocol_doc.write_markdown(Path(args.export_docs))
             print(f"Wrote {args.export_docs}.")

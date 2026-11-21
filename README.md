@@ -152,8 +152,18 @@ CELESTRON_AUX_WEB_PASSWORD=secret celestron-aux --web 0.0.0.0:8080
 celestron-aux --web 0.0.0.0:8080 --web-password=secret
 ```
 
+On Windows, set the environment variable first, then start the program:
+
+```
+set CELESTRON_AUX_WEB_PASSWORD=secret            (Command Prompt)
+$env:CELESTRON_AUX_WEB_PASSWORD = "secret"       (PowerShell)
+py -m celestron_aux --web 0.0.0.0:8080
+```
+
 The browser asks for it once; any user name works. Asking at startup or the
-environment variable keeps the password out of your shell history. With a
+environment variable keeps the password out of your shell history. Asking at
+startup needs a real terminal (Terminal, Command Prompt, PowerShell); where the
+program cannot hide what you type, Python warns that the password may show. With a
 value, write `--web-password=secret` (with `=`), so it is not mistaken for the
 mode. The page uses plain HTTP, so the password crosses the network
 unencrypted: it keeps other people at the observing site out, but use
@@ -169,8 +179,12 @@ celestron-aux --export-dissector celestron_aux.lua         # the dissector
 celestron-aux --export-pcap rawoutput.txt capture.pcap      # a raw capture (--raw) as pcap
 ```
 
-Copy `celestron_aux.lua` into Wireshark's personal Lua plugins folder (Wireshark
-shows it under **Help > About Wireshark > Folders**), then restart Wireshark.
+Copy `celestron_aux.lua` into Wireshark's personal Lua plugins folder, then
+restart Wireshark. Wireshark shows the folder under **Help > About Wireshark >
+Folders** (on a Mac, **Wireshark > About Wireshark > Folders**); it is usually
+`%APPDATA%\Wireshark\plugins` on Windows and `~/.local/lib/wireshark/plugins`
+on macOS and Linux. On Windows, write `py -m celestron_aux` in place of
+`celestron-aux` in the commands above.
 The dissector decodes:
 
 - **pcap files from `--export-pcap`**: one record per frame, marks included
@@ -179,7 +193,11 @@ The dissector decodes:
   a SkyPortal or Evolution Wi-Fi module, and the AUX stream on TCP port 2000 is
   decoded, with frames split across TCP segments put back together. The port
   can be changed in **Preferences > Protocols > CELESTRON_AUX**. This also
-  covers apps talking to this program's Wi-Fi dongle emulator.
+  covers apps talking to this program's Wi-Fi dongle emulator. Capture on the
+  computer that runs the app (its Wi-Fi interface): a computer normally cannot
+  see the traffic between a phone and the module. Capturing needs Npcap on
+  Windows (the Wireshark installer offers it) and, on a Mac, the ChmodBPF
+  package that comes with Wireshark.
 
 Each frame shows its source, destination and command names, its data, and
 whether its checksum is right. Filter with `celestron_aux`, for example

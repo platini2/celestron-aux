@@ -23,7 +23,11 @@ _NOTE = re.compile(r'0x[0-9A-Fa-f]{2}:\s*"([A-Z0-9_]+)",?\s*#\s*(.+)$')
 def _notes() -> Dict[str, str]:
     """Notes on commands, taken from the comments next to them in catalog.py."""
     notes: Dict[str, str] = {}
-    for line in inspect.getsource(catalog).splitlines():
+    try:
+        source = inspect.getsource(catalog)
+    except (OSError, TypeError):
+        return notes  # no source files (a frozen or byte-code-only install): no notes
+    for line in source.splitlines():
         match = _NOTE.search(line)
         if match:
             notes.setdefault(match.group(1), match.group(2).strip())

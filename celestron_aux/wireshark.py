@@ -124,8 +124,9 @@ _LUA_TEMPLATE = """\
 -- the device and command names known when it was made, your own included.
 --
 -- Install: copy this file into Wireshark's personal Lua plugins folder
--- (Help > About Wireshark > Folders > Personal Lua Plugins), then restart
--- Wireshark or press Ctrl+Shift+L. It decodes:
+-- (Help > About Wireshark > Folders > Personal Lua Plugins; on a Mac,
+-- Wireshark > About Wireshark), then restart Wireshark or reload the Lua plugins
+-- (Ctrl+Shift+L, or Cmd+Shift+L on a Mac). It decodes:
 --   * pcap files made with celestron-aux --export-pcap (link type USER0, {linktype});
 --   * live Wi-Fi traffic to a SkyPortal or Evolution module, TCP port {tcp_port}
 --     (change it under Preferences > Protocols > CELESTRON_AUX).

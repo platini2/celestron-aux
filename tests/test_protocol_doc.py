@@ -27,3 +27,12 @@ def test_your_names_are_marked(isolated_user_catalog):
     text = protocol_doc.markdown()
     assert "| `0x99` | My accessory (your name) | device |" in text
     assert "| `0x10` | MY_COMMAND (your name) |  |  |" in text
+
+
+def test_works_without_source_files(monkeypatch):
+    def no_source(_):
+        raise OSError("could not get source code")
+
+    monkeypatch.setattr(protocol_doc.inspect, "getsource", no_source)
+    text = protocol_doc.markdown()
+    assert "| `0x01` | MTR_GET_POSITION | yes |  |" in text
