@@ -1,21 +1,29 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 ### Added
 
-- Releases include `celestron-aux-<version>.zip`, the source in a folder of
-  that name, installable with `pip install` without Git. 1.2.0 has it too.
-- The Wireshark dissector decodes payloads like celestron-aux itself: every
+- Wireshark support. `--export-dissector` writes a Lua dissector that names the
+  devices and commands of every frame (from the catalog, your names included),
+  decodes payloads like celestron-aux itself and checks checksums. Every
   payload decoder has a Lua port (positions, RA/Dec, plate solves, polar
   alignment, GPS, dew heater, battery, lights, focuser, versions and mount
-  models), shown in the Info column and as `celestron_aux.value`. A test runs
-  both on over 27,000 payloads and requires identical text.
-
-### Changed
-
-- In Wireshark, a TCP segment that only carries part of a frame stays "TCP"
-  in the Protocol column; the frame is decoded on the segment that completes it.
+  models), shown in the Info column and as `celestron_aux.value`; a test runs
+  both on over 27,000 payloads and requires identical text. The dissector
+  decodes pcap files made with `--export-pcap` from a raw capture (one record
+  per frame, marks included) and live Wi-Fi traffic on TCP port 2000,
+  reassembling frames split across TCP segments; a segment that only carries
+  part of a frame stays "TCP". The web interface offers the pcap and the
+  dissector as downloads.
+- `--web-password` asks for a password before the web page opens (HTTP Basic
+  authentication, any user name). It can be given on the command line, asked
+  for at startup, or read from `CELESTRON_AUX_WEB_PASSWORD`.
+- `--export-docs` writes a Markdown reference of every known device and command,
+  which payloads are decoded and the mount models. `docs/protocol.md` is that
+  reference with the built-in names; a test keeps it up to date.
+- Releases include `celestron-aux-<version>.zip`, the source in a folder of
+  that name, installable with `pip install` without Git.
 
 ### Fixed
 
@@ -23,23 +31,6 @@
   OverflowError in the decoder instead of showing "unexpected format".
   Absurd angles (over a billion degrees) and calibration times outside the
   years 1970-9999 are also shown as unexpected format, on every system.
-
-## 1.2.0
-
-### Added
-
-- Wireshark support. `--export-dissector` writes a Lua dissector that names the
-  devices and commands of every frame (from the catalog, your names included)
-  and checks checksums. It decodes pcap files made with `--export-pcap` from a
-  raw capture (one record per frame, marks included) and live Wi-Fi traffic on
-  TCP port 2000, reassembling frames split across TCP segments. The web
-  interface offers both as downloads.
-- `--web-password` asks for a password before the web page opens (HTTP Basic
-  authentication, any user name). It can be given on the command line, asked
-  for at startup, or read from `CELESTRON_AUX_WEB_PASSWORD`.
-- `--export-docs` writes a Markdown reference of every known device and command,
-  which payloads are decoded and the mount models. `docs/protocol.md` is that
-  reference with the built-in names; a test keeps it up to date.
 
 ## 1.1.1
 
