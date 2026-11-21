@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Releases include `celestron-aux-<version>.zip`, the source in a folder of
+  that name, installable with `pip install` without Git. 1.2.0 has it too.
+
 ## 1.2.0
 
 ### Added

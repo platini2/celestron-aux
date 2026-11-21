@@ -17,6 +17,11 @@ celestron-aux hc /dev/ttyUSB0       # through a hand controller
 celestron-aux playback rawoutput.txt  # replay a recorded session
 ```
 
+Without Git, download `celestron-aux-<version>.zip` from the
+[Releases](https://github.com/platini2/celestron-aux/releases) page and install
+it directly with `pip install celestron-aux-1.2.0.zip` (`py -m pip install ...`
+on Windows), or unpack it and run `pip install .` in its folder.
+
 `python -m celestron_aux ...` works too. Run `celestron-aux -h` for every option
 (`--csv`, `--raw`, `--no-scan`, `--listen-only`, `--keepalive`, `--image-dir`,
 `-v`, ...). Inside the session, type `h` to list the interactive commands.
