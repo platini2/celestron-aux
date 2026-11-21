@@ -20,6 +20,15 @@
   checksums now. On that capture, both dissectors and Python agree on every
   one of its 1,056 frames.
 
+### Tests
+
+- `tests/fixtures/cpwi_wifi_nexstar_slt.pcap`: a real Wi-Fi capture of CPWI
+  with a NexStar SLT (motors, StarSense camera and hand controller, focuser,
+  dew heater, GPS), AUX traffic only, with the hardware half of the MAC
+  addresses blanked. `tests/test_real_capture.py` decodes it in Python
+  everywhere (a small pcap reader rebuilds the TCP streams), and requires the
+  Lua and C dissectors to find the same frames, names and values.
+
 ## 1.2.0
 
 ### Added
