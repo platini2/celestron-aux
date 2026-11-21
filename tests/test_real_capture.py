@@ -7,12 +7,11 @@ dew heater controller and a GPS. A TCP segment from the module was not
 captured, so one stretch has to be resynchronised after a bad checksum, and the
 StarSense hand controller twice sends a frame with a zero checksum.
 
-The Python test runs everywhere. The Lua and C ones run when their tshark is
-available, and require them to find the same frames, names and values.
+The Python test runs everywhere. The Lua one runs when Wireshark's tshark is
+installed, and requires the dissector to find the same frames, names and values.
 """
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -109,11 +108,3 @@ def test_lua_dissector_matches_python_on_the_capture(tmp_path, monkeypatch):
     wireshark.write_dissector(tmp_path / "aux.lua")
     lua = dissector_frames(["tshark", "-X", f"lua_script:{tmp_path / 'aux.lua'}"])
     assert_same_as_python(lua, python_frames(monkeypatch))
-
-
-@pytest.mark.skipif(not os.environ.get("CELESTRON_AUX_TSHARK"),
-                    reason="set CELESTRON_AUX_TSHARK to a tshark built with the C dissector")
-def test_c_dissector_matches_python_on_the_capture(monkeypatch):
-    tshark = str(Path(os.environ["CELESTRON_AUX_TSHARK"]).expanduser())
-    c = dissector_frames([tshark, "-d", "tcp.port==2000,celestron_aux"])
-    assert_same_as_python(c, python_frames(monkeypatch))

@@ -2,23 +2,14 @@
 
 ## 1.2.1
 
-### Added
-
-- `wireshark/packet-celestron-aux.c`: the dissector in C for Wireshark's source
-  tree (GPL-2.0-or-later, as Wireshark requires), with every payload decoder
-  ported. Its tables are generated from the catalog
-  (`python -m celestron_aux.wireshark_c`), and tests check them, compare its
-  decoding with Python's on over 27,000 payloads, and try it on random bytes,
-  given a tshark built with it (`CELESTRON_AUX_TSHARK`). See wireshark/README.md.
-
 ### Fixed
 
-- The Wireshark dissectors (Lua and C) now resynchronise after a bad checksum
-  as celestron-aux's own parser does, moving on one byte instead of the whole
+- The Wireshark dissector now resynchronises after a bad checksum as
+  celestron-aux's own parser does, moving on one byte instead of the whole
   "frame". On a real Wi-Fi capture with a lost TCP segment, a broken header's
-  length byte had swallowed four real frames. They also check StarSense frame
-  checksums now. On that capture, both dissectors and Python agree on every
-  one of its 1,056 frames.
+  length byte had swallowed four real frames. It also checks StarSense frame
+  checksums now. On that capture, the dissector and Python agree on every one
+  of its 1,056 frames.
 
 ### Tests
 
@@ -27,7 +18,7 @@
   dew heater, GPS), AUX traffic only, with the hardware half of the MAC
   addresses blanked. `tests/test_real_capture.py` decodes it in Python
   everywhere (a small pcap reader rebuilds the TCP streams), and requires the
-  Lua and C dissectors to find the same frames, names and values.
+  Wireshark dissector to find the same frames, names and values.
 
 ## 1.2.0
 
