@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -17,6 +19,9 @@ from .keepalive import DEFAULT_INTERVAL
 from .protocol import AuxPacket
 from .transport import Transport
 from .transport.factory import MODES, create_transport
+
+PASSWORD_ENV = "CELESTRON_AUX_WEB_PASSWORD"
+PROMPT = "\0ask"  # --web-password without a value: ask when the program starts
 
 if TYPE_CHECKING:
     from .web import WebServer, WebSession
@@ -60,6 +65,17 @@ def build_parser() -> argparse.ArgumentParser:
                         help="run the browser interface instead of the console one; the console stays "
                              "silent. Without a mode and target you choose the connection in the browser "
                              "(default: 127.0.0.1:8080; use 0.0.0.0:8080 to allow other devices)")
+    parser.add_argument("--web-password", nargs="?", const=PROMPT, default=None, metavar="PASSWORD",
+                        help="ask for a password before the web page opens (any user name). Without a "
+                             "value it is asked for when the program starts; the environment variable "
+                             f"{PASSWORD_ENV} works too and keeps it out of your shell history")
+    exports = parser.add_argument_group("export (each runs, writes its file and exits)")
+    exports.add_argument("--export-pcap", nargs=2, metavar=("CAPTURE", "PCAP"),
+                         help="convert a raw capture (from --raw) to a pcap file for Wireshark")
+    exports.add_argument("--export-dissector", metavar="LUA",
+                         help="write a Wireshark dissector (Lua) that names devices and commands")
+    exports.add_argument("--export-docs", metavar="MARKDOWN",
+                         help="write a protocol reference of every known device and command (Markdown)")
     parser.add_argument("--log-level", default=None,
                         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
                         help="diagnostic log level (default: INFO, or WARNING with --web)")
@@ -366,11 +382,16 @@ class Repl:
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.exporting = bool(args.export_pcap or args.export_dissector or args.export_docs)
+    args.listen = None
+    if args.exporting:
+        return args
     if args.mode and not args.target:
         parser.error(f"{args.mode} mode needs a target (IP address, serial port or capture file)")
     if not args.mode and not args.web:
         parser.error("give a mode and target, e.g. 'wifi 1.2.3.4', or use --web to connect from the browser")
-    args.listen = None
+    if args.web_password is not None and not args.web:
+        parser.error("--web-password only applies with --web")
     if args.web:
         from .web import parse_listen_address
         try:
@@ -387,6 +408,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     user_catalog = catalog.UserCatalog(args.catalog or catalog.DEFAULT_USER_CATALOG)
     user_catalog.load()
     catalog.use_user_catalog(user_catalog)
+    if args.exporting:
+        return _run_exports(args)
     if args.listen:
         return _run_web(args)
     return _run_console(args)
@@ -406,12 +429,54 @@ def _run_console(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_exports(args: argparse.Namespace) -> int:
+    from . import protocol_doc, wireshark
+
+    try:
+        if args.export_pcap:
+            capture, pcap = (Path(p) for p in args.export_pcap)
+            count = wireshark.capture_to_pcap(capture, pcap)
+            print(f"Wrote {pcap}: {count} records. Open it in Wireshark with the dissector "
+                  "from --export-dissector.")
+        if args.export_dissector:
+            wireshark.write_dissector(Path(args.export_dissector))
+            print(f"Wrote {args.export_dissector}. Copy it into Wireshark's personal Lua plugins folder "
+                  "(Help > About Wireshark > Folders).")
+        if args.export_docs:
+            protocol_doc.write_markdown(Path(args.export_docs))
+            print(f"Wrote {args.export_docs}.")
+    except (OSError, ValueError) as exc:
+        logging.error("%s", exc)
+        return 2
+    return 0
+
+
+def web_password(args: argparse.Namespace, ask: Callable[[str], str] = getpass.getpass) -> Optional[str]:
+    """The web page's password: from --web-password, asked for, or from the environment."""
+    password = args.web_password
+    if password == PROMPT:
+        password = ask("Web page password: ")
+        if password != ask("Same password again: "):
+            raise ValueError("the two passwords differ")
+    elif password is None:
+        password = os.environ.get(PASSWORD_ENV) or None
+    if password is not None and not password:
+        raise ValueError("the web page password cannot be empty")
+    return password
+
+
 def _run_web(args: argparse.Namespace) -> int:
     from .web import WebServer, WebSession
 
+    try:
+        password = web_password(args)
+    except (ValueError, EOFError, KeyboardInterrupt) as exc:
+        logging.error("--web-password: %s", exc or "cancelled")
+        return 2
     session = WebSession(config_from_args(args))
     try:
-        web = WebServer(session, *args.listen)  # bind first, so a busy port fails fast
+        host, port = args.listen
+        web = WebServer(session, host, port, password=password)  # bind first, so a busy port fails fast
     except OSError as exc:
         logging.error("could not start the web interface: %s", exc)
         session.close()
@@ -437,9 +502,11 @@ def _serve_web(web: "WebServer", session: "WebSession") -> None:
     print(f"Web interface: http://{shown}:{port}/  (press Ctrl+C to stop)", flush=True)
     if session.app is None:
         print("Open it and choose how to connect to the mount.", flush=True)
-    if host in ("0.0.0.0", "::"):
-        print("Any device on your network can open it and control the mount; there is no password.",
-              flush=True)
+    if web.password_protected:
+        print("The page asks for the password (any user name).", flush=True)
+    elif host in ("0.0.0.0", "::"):
+        print("Any device on your network can open it and control the mount; there is no password. "
+              "Add --web-password to require one.", flush=True)
     try:
         web.serve_forever()
     except KeyboardInterrupt:

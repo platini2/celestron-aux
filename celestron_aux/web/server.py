@@ -10,6 +10,10 @@ Routes:
 * ``POST /api/replay?name=...&speed=...`` replays a raw capture sent as the body.
 * ``POST /api/...`` performs actions (see ``POST_ROUTES``).
 
+With a password (``WebServer(..., password=...)``) every request needs HTTP
+Basic authentication with that password and any user name; browsers ask for it
+once and send it with every later request, the live stream included.
+
 POST requests must carry ``X-Requested-With: celestron-aux``; all but the
 replay upload take a JSON body.
 A browser only sends that header from this page itself, so other websites
@@ -18,6 +22,9 @@ cannot drive the mount through a visitor's browser.
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hmac
 import json
 import logging
 import queue
@@ -106,7 +113,11 @@ def _load_page() -> bytes:
 class WebServer:
     """Serves the UI and API for a WebSession. Closing it does not close the session."""
 
-    def __init__(self, session: WebSession, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+    def __init__(self, session: WebSession, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
+                 password: Optional[str] = None) -> None:
+        if password is not None and not password:
+            raise ValueError("the password cannot be empty")
+        self._password = password.encode("utf-8") if password is not None else None
         self.feed = session.feed
         self.api = WebApi(session)
         self._page = _load_page()
@@ -118,6 +129,24 @@ class WebServer:
     def address(self) -> Tuple[str, int]:
         host, port = self._httpd.server_address[:2]
         return str(host), int(port)
+
+    @property
+    def password_protected(self) -> bool:
+        return self._password is not None
+
+    def authorized(self, header: Optional[str]) -> bool:
+        """Whether an ``Authorization`` header carries the password (always true without one)."""
+        if self._password is None:
+            return True
+        scheme, _, encoded = (header or "").partition(" ")
+        if scheme.lower() != "basic":
+            return False
+        try:
+            credentials = base64.b64decode(encoded.strip(), validate=True)
+        except (binascii.Error, ValueError):
+            return False
+        _, separator, password = credentials.partition(b":")
+        return bool(separator) and hmac.compare_digest(password, self._password)
 
     def serve_forever(self) -> None:
         """Serve until ``close`` is called from another thread or Ctrl+C."""
@@ -145,7 +174,23 @@ def _make_handler(server: WebServer) -> type:
 
         # --- GET --------------------------------------------------------------
 
+        def _refuse_unauthorized(self) -> bool:
+            """Answer 401 and return True when the request lacks the password."""
+            if server.authorized(self.headers.get("Authorization")):
+                return False
+            body = json.dumps({"error": "Password required."}).encode("utf-8")
+            self.send_response(HTTPStatus.UNAUTHORIZED)
+            self.send_header("WWW-Authenticate", 'Basic realm="celestron-aux", charset="UTF-8"')
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return True
+
         def do_GET(self) -> None:
+            if self._refuse_unauthorized():
+                return
             url = urlsplit(self.path)
             if url.path in ("/", "/index.html"):
                 self._send_bytes(HTTPStatus.OK, server._page, "text/html; charset=utf-8")
@@ -230,6 +275,8 @@ def _make_handler(server: WebServer) -> type:
         # --- POST -------------------------------------------------------------
 
         def do_POST(self) -> None:
+            if self._refuse_unauthorized():
+                return
             url = urlsplit(self.path)
             route = POST_ROUTES.get(url.path)
             if route is None and url.path != "/api/replay":

@@ -10,12 +10,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-from .. import __copyright__, __version__, catalog
+from .. import __copyright__, __version__, catalog, wireshark
 from ..app import ScannerApp
 from ..catalog import Addr
 from ..motion import Axis, MotionRefused
 from ..protocol import AuxPacket
 from ..transport.factory import LIVE_MODES
+from ..transport.playback import load_capture
 from ..transport.tcp import DEFAULT_PORT
 from ..mount_emulator import MountSetup, mount_table
 from .session import AlreadyConnected, NeedsConfirmation, WebSession
@@ -152,6 +153,17 @@ class WebApi:
         if kind == "raw":
             return _read_log(Path(config.raw_path), "text/plain; charset=ascii",
                              "No raw capture yet. Turn on raw capture first.")
+        if kind == "pcap":
+            raw = Path(config.raw_path)
+            if not raw.exists():
+                raise ApiError(404, "No raw capture yet. Turn on raw capture first.")
+            try:
+                records = wireshark.frames_from_capture(load_capture(raw))
+            except ValueError as exc:
+                raise ApiError(422, f"The raw capture cannot be converted: {exc}") from exc
+            return raw.with_suffix(".pcap").name, "application/vnd.tcpdump.pcap", wireshark.pcap_bytes(records)
+        if kind == "dissector":
+            return "celestron_aux.lua", "text/x-lua; charset=utf-8", wireshark.dissector_lua().encode("utf-8")
         raise ApiError(404, "Not found.")
 
     # --- connection ---------------------------------------------------------

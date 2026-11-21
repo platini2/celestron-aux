@@ -410,6 +410,10 @@
           <span>Raw capture<small id="raw-path"></small></span></label>
         <button class="link-button" type="button" data-download="raw">Download</button>
       </div>
+      <p class="hint">For Wireshark: <button class="link-button" type="button" data-download="pcap"
+        title="The raw capture as a pcap file, one record per frame">capture as pcap</button> ·
+        <button class="link-button" type="button" data-download="dissector"
+        title="A Lua dissector that names devices and commands; copy it into Wireshark's personal Lua plugins folder">dissector</button></p>
       <label class="switch"><input type="checkbox" data-setting="images">
         <span>Save StarSense images<small id="image-dir"></small></span></label>
       <p id="pre-connect-hint" class="hint">These apply from the first packet once you connect.</p>

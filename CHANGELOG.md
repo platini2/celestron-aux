@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Wireshark support. `--export-dissector` writes a Lua dissector that names the
+  devices and commands of every frame (from the catalog, your names included)
+  and checks checksums. It decodes pcap files made with `--export-pcap` from a
+  raw capture (one record per frame, marks included) and live Wi-Fi traffic on
+  TCP port 2000, reassembling frames split across TCP segments. The web
+  interface offers both as downloads.
+- `--web-password` asks for a password before the web page opens (HTTP Basic
+  authentication, any user name). It can be given on the command line, asked
+  for at startup, or read from `CELESTRON_AUX_WEB_PASSWORD`.
+- `--export-docs` writes a Markdown reference of every known device and command,
+  which payloads are decoded and the mount models. `docs/protocol.md` is that
+  reference with the built-in names; a test keeps it up to date.
+
 ## 1.1.1
 
 ### Fixed

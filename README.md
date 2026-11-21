@@ -140,9 +140,68 @@ No telescope is needed to try the emulators: switching one on opens a local
 bus where the emulated devices answer, the traffic is decoded and the scan
 buttons work. Connecting to a telescope later replaces it.
 
-There is no password: anyone who can open the page can control the mount. The
-default address only accepts connections from the same computer; use
+### Password
+
+Without a password, anyone who can open the page can control the mount. The
+default address only accepts connections from the same computer. To open the
+page from other devices, add a password:
+
+```bash
+celestron-aux --web 0.0.0.0:8080 --web-password       # asks for it when the program starts
+CELESTRON_AUX_WEB_PASSWORD=secret celestron-aux --web 0.0.0.0:8080
+celestron-aux --web 0.0.0.0:8080 --web-password=secret
+```
+
+The browser asks for it once; any user name works. Asking at startup or the
+environment variable keeps the password out of your shell history. With a
+value, write `--web-password=secret` (with `=`), so it is not mistaken for the
+mode. The page uses plain HTTP, so the password crosses the network
+unencrypted: it keeps other people at the observing site out, but use
 `0.0.0.0` only on a network you trust.
+
+## Wireshark
+
+celestron-aux can hand its captures to [Wireshark](https://www.wireshark.org),
+with a dissector that names every device and command:
+
+```bash
+celestron-aux --export-dissector celestron_aux.lua         # the dissector
+celestron-aux --export-pcap rawoutput.txt capture.pcap      # a raw capture (--raw) as pcap
+```
+
+Copy `celestron_aux.lua` into Wireshark's personal Lua plugins folder (Wireshark
+shows it under **Help > About Wireshark > Folders**), then restart Wireshark.
+The dissector decodes:
+
+- **pcap files from `--export-pcap`**: one record per frame, marks included
+  (shown as MARK), with the timestamps of the raw capture.
+- **Live Wi-Fi traffic**: capture on the network between CPWI or SkySafari and
+  a SkyPortal or Evolution Wi-Fi module, and the AUX stream on TCP port 2000 is
+  decoded, with frames split across TCP segments put back together. The port
+  can be changed in **Preferences > Protocols > CELESTRON_AUX**. This also
+  covers apps talking to this program's Wi-Fi dongle emulator.
+
+Each frame shows its source, destination and command names, its data, and
+whether its checksum is right. Filter with `celestron_aux`, for example
+`celestron_aux.cmd_name == "MTR_GOTO_FAST"` or `celestron_aux.src == 0x10`.
+The dissector carries the names known when it was exported, your own catalog
+names included, so export it again after naming something. Payload values
+(positions, coordinates, firmware versions) are decoded by celestron-aux, not
+by the dissector.
+
+In the web interface, the Recording panel offers the raw capture as pcap and
+the dissector as downloads.
+
+## Protocol reference
+
+[docs/protocol.md](docs/protocol.md) lists every device and command
+celestron-aux knows, which payloads it decodes, and the mount models. It is
+generated from the code. To make one that includes the names in your own
+catalog:
+
+```bash
+celestron-aux --export-docs my-protocol.md
+```
 
 ## Emulators
 
