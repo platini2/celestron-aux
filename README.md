@@ -7,6 +7,8 @@ its two motors, StarSense cameras, GPS, focuser, dew heater and a Wi-Fi dongle),
 so apps such as CPWI can be tried, and their traffic studied, without a
 telescope. See [Emulators](#emulators).
 
+Website: https://celestron-aux.patriciolatini.com
+
 ## Install and run
 
 ```bash
