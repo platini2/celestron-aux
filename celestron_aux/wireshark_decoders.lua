@@ -218,7 +218,7 @@ D._starsense_align_center = function(s)
 end
 
 D._starsense_status = function(s)
-  local status = labelled(at(s, 0), {[1] = "Error", [3] = "Ready", [9] = "Finished"})
+  local status = labelled(at(s, 0), {[1] = "Idle / none found", [3] = "Ready", [9] = "Finished"})
   if #s > 1 then return status .. " - Stars: " .. int(at(s, 1)) end
   return status
 end

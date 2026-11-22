@@ -299,11 +299,11 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
     0xB3: {0xFE: "WIFI_GET_FW_VER"},
     0xB4: {
         0x3E: "SS_SET_ALIGN_CENTER",
-        0x3F: "SS_GET_ALIGN_CENTER",
-        0x90: "SS_RESET_CAPTURE",
-        0x91: "SS_GET_STATUS",
-        0x92: "SS_GET_CAPTURE_DATA",
-        0x94: "SS_START_CAPTURE",
+        0x3F: "SS_GET_ALIGN_CENTER",  # x, y; 640, 480 (the sensor centre) on a camera never centre calibrated
+        0x90: "SS_RESET_CAPTURE",  # 16-bit exposure setting + 00 (03 E8 00 = 1000); answered with no data when set, 1-3 s
+        0x91: "SS_GET_STATUS",  # status, stars; 01 00 when idle (also after power-on) or none found, 09 NN after a capture
+        0x92: "SS_GET_CAPTURE_DATA",  # answered 09 NN, then the star list as a 3C frame; repeats the last list, no new exposure
+        0x94: "SS_START_CAPTURE",  # 00; answered after about 10 s with 01 00 (none found) or 09 NN (stars found)
         0x9F: "SS_GET_IMAGE3",
         0xFE: "SS_GET_FW_VER",
     },

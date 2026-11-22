@@ -235,7 +235,7 @@ class WebApi:
         if not app.registry.contains(Addr.STARSENSE_CAMERA):
             raise ApiError(409, "No StarSense camera detected. Scan the bus first.")
         app.start_starsense_capture()
-        return {"message": "StarSense capture started. The star list arrives in about 8 seconds."}
+        return {"message": "StarSense capture started. The star list arrives in about 15 seconds."}
 
     def starsense_sample(self, body: Mapping[str, Any]) -> Json:
         app = self._transmitting_app()

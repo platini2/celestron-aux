@@ -230,7 +230,7 @@ def _starsense_align_center(data: bytes, is_reply: bool) -> str:
 
 @_decodes([Addr.STARSENSE_CAMERA], [0x91, 0x92, 0x94, 0x9F])
 def _starsense_status(data: bytes, is_reply: bool) -> str:
-    status = _labelled(data[0], {1: "Error", 3: "Ready", 9: "Finished"})
+    status = _labelled(data[0], {1: "Idle / none found", 3: "Ready", 9: "Finished"})
     return f"{status} - Stars: {data[1]}" if len(data) > 1 else status
 
 

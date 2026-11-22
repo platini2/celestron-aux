@@ -27,7 +27,7 @@ from .scanner import BusScanner
 from .device_emulators import DewHeaterEmulator, FocuserEmulator, StarSenseV1Emulator, WifiModuleEmulator
 from .mount_emulator import MountEmulator
 from .starsense_emulator import StarSenseEmulator
-from .starsense import StarImageSaver, run_capture_sequence
+from .starsense import StarImageSaver, StarSenseCapture
 from .transport import Transport
 from .wifi_bridge import WifiBridge
 
@@ -98,6 +98,7 @@ class ScannerApp:
         self.raw_recorder = raw_recorder or RawRecorder()
         self.discovery = discovery if discovery is not None else DiscoveryTracker()
         self.images = StarImageSaver(config.image_dir, enabled=config.save_starsense_images)
+        self.starsense_capture = StarSenseCapture(self.bus.send)
         self.wifi = WifiBridge(self.bus)
         self.gps = GpsEmulator(self._emulator_send)
         self.starsense_v2 = StarSenseEmulator(self._emulator_send)
@@ -127,7 +128,7 @@ class ScannerApp:
                          self.plate_solver,
                          self.console, self.csv_log, self.images, self.gps, self.starsense_v2,
                          self.focuser_emulator, self.dew_emulator, self.wifi_module, self.mount_emulator,
-                         self.starsense_v1,
+                         self.starsense_v1, self.starsense_capture,
                          self.wifi):
             self.bus.subscribe(listener)
         self.bus.subscribe(self.raw_recorder.on_event)
@@ -326,7 +327,7 @@ class ScannerApp:
         return self.raw_recorder.active
 
     def start_starsense_capture(self) -> None:
-        self._in_background("aux-starsense-capture", run_capture_sequence, self.bus.send)
+        self._in_background("aux-starsense-capture", self.starsense_capture.run)
 
     def send_sample_star_list(self) -> bool:
         return self.bus.send(StarSenseFrame(SAMPLE_STAR_LIST))

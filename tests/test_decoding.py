@@ -160,6 +160,8 @@ def test_decoded_payloads_keep_their_hex_too():
     (0xB0, 0x0D, 0x33, "170509", "23:05:09"),
     (0xB0, 0x0D, 0x37, "01", "1 - Yes"),
     (0xB4, 0x0E, 0x91, "0312", "3 - Ready - Stars: 18"),
+    (0xB4, 0x0E, 0x91, "0100", "1 - Idle / none found - Stars: 0"),  # after power-on, or no stars
+    (0xB4, 0x0E, 0x94, "0949", "9 - Finished - Stars: 73"),
     (0x17, 0x0D, 0x00, "2ee00bb8", "12 V - 3 A"),
     (0x17, 0x0D, 0x18, "00004e20000027100a", "Temp: 20\N{DEGREE SIGN}C Dew: 10\N{DEGREE SIGN}C Hum: 10%"),
     (0x0D, 0x17, 0x11, "01", "1 - Get dew heater ports"),

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- StarSense capture: the request for the star list was sent 4 seconds after
+  the capture started, but a real camera takes about 10 seconds to capture and
+  answers nothing meanwhile, so the list could be missed. Each step now waits
+  for the camera's answer, and when the camera finds no stars the capture says
+  so instead of asking for an empty list.
+- StarSense status 1 is now shown as "Idle / none found" instead of "Error":
+  the camera reports it after power-on and when a capture finds no stars
+  (Python and the Wireshark dissector).
+- The protocol reference describes the StarSense camera's capture commands
+  (exposure setting, timings, replies). The star list's description no longer
+  says an all-zero record ends the list: the camera can count one inside it.
+
+Thanks to a user who measured a StarSense AutoAlign camera on a NexStar
+Evolution and reported these.
+
 ## 1.2.2
 
 ### Fixed

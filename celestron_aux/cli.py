@@ -314,7 +314,7 @@ class Repl:
         if self._blocked():
             return False
         self.app.start_starsense_capture()
-        self._write("StarSense capture started (takes about 8 seconds).")
+        self._write("StarSense capture started (takes about 15 seconds).")
         return False
 
     def _toggle_emulation(self, kind: str) -> bool:
