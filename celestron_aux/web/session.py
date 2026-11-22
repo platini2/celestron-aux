@@ -360,6 +360,22 @@ class WebSession:
             if self._app is not None:
                 self._app.starsense_v1.recorded_list = enabled
 
+    def sky_view(self) -> Optional[dict]:
+        with self._lock:
+            app = self._app
+        return app.sky_view() if app is not None else None
+
+    def sky_trail(self) -> list:
+        with self._lock:
+            app = self._app
+        return app.sky_trail() if app is not None else []
+
+    def clear_sky_trail(self) -> None:
+        with self._lock:
+            app = self._app
+        if app is not None:
+            app.mount_emulator.clear_trail()
+
     def starsense_v2_solves(self) -> list:
         with self._lock:
             app = self._app

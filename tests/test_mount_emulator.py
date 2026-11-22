@@ -310,3 +310,20 @@ def test_a_placement_error_is_measured_and_turning_the_knobs_removes_it():
     altaz, sent2, _ = make(model="cpc")
     with pytest.raises(ValueError, match="alt-az"):
         altaz.adjust(35, 180)
+
+
+def test_it_records_where_it_pointed_for_the_sky_sphere():
+    emu, sent, clock = make(model="slt", initial_alt=30, initial_az=180)
+    ask(emu, sent, 0x10, 0x02, steps(30))
+    for t in (1.0, 2.0, 3.0, 20.0):  # CPWI asks where it is while it slews
+        clock.t = t
+        ask(emu, sent, 0x10, 0x01)
+    trail = emu.trail()
+    azimuths = [az for _, _, az in trail]
+    assert len(trail) >= 4 and azimuths == sorted(azimuths)  # it turned one way, sample by sample
+    assert azimuths[0] == pytest.approx(180, abs=0.1) and azimuths[-1] == pytest.approx(210, abs=0.1)
+    assert all(abs(alt - 30) < 1e-6 for _, alt, _ in trail)
+    emu.clear_trail()
+    assert len(emu.trail()) == 1  # just where it is now
+    emu.configure(MountSetup(model="slt"))  # a new power-on: the path starts again
+    assert [(round(alt, 3), round(az, 3)) for _, alt, az in emu.trail()] == [(0.0, 0.0)]

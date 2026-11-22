@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import math
 import time
+from collections import deque
 from dataclasses import dataclass, field, replace
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 from .catalog import Addr
 from .device_emulators import DeviceEmulator
@@ -303,7 +304,13 @@ class MountEmulator(DeviceEmulator):
     addresses = (Addr.AZM_MOTOR, Addr.ALT_MOTOR)
     versions = {Addr.AZM_MOTOR: parse_version("5.18"), Addr.ALT_MOTOR: parse_version("5.18")}
 
-    def __init__(self, send: Callable[[AuxPacket], object], clock: Callable[[], float] = time.monotonic) -> None:
+    TRAIL_LENGTH = 5000  # samples of where it pointed, for the page's sky sphere
+    TRAIL_STEP = 0.05    # degrees it must move before another sample is kept
+
+    def __init__(self, send: Callable[[AuxPacket], object], clock: Callable[[], float] = time.monotonic,
+                 wall_clock: Callable[[], float] = time.time) -> None:
+        self._wall_clock = wall_clock
+        self._trail: Deque[Tuple[float, float, float]] = deque(maxlen=self.TRAIL_LENGTH)
         super().__init__(send, clock)
         self.configure(MountSetup())
 
@@ -325,6 +332,7 @@ class MountEmulator(DeviceEmulator):
             self.custom_rate9 = {address: CUSTOM_RATE9 for address in self.addresses}
             self.custom_rate9_enabled = {address: 0 for address in self.addresses}
             self.user_limits = {address: [bytes(2), bytes(2)] for address in self.addresses}  # off, 0 and 0
+            self._trail.clear()
 
     # --- where it points ----------------------------------------------------------------
 
@@ -337,6 +345,22 @@ class MountEmulator(DeviceEmulator):
     def _advance(self) -> None:
         for axis in self.axes.values():
             axis.advance()
+        if self._enabled:
+            alt, az = self.pointing_for(self.axes[Addr.AZM_MOTOR].degrees, self.axes[Addr.ALT_MOTOR].degrees)
+            last = self._trail[-1] if self._trail else None
+            if last is None or abs(last[1] - alt) + abs(((last[2] - az + 180) % 360) - 180) > self.TRAIL_STEP:
+                self._trail.append((self._wall_clock(), alt, az))
+
+    def trail(self) -> List[Tuple[float, float, float]]:
+        """Where it has pointed since it was set up: (Unix time, altitude, azimuth), oldest first.
+        Sampled whenever it is asked where it is (CPWI does so constantly while slewing)."""
+        with self._lock:
+            self._advance()
+            return list(self._trail)
+
+    def clear_trail(self) -> None:
+        with self._lock:
+            self._trail.clear()
 
     def polar_axis(self) -> Optional[Tuple[float, float]]:
         """Altitude and azimuth where the polar axis really points (wedge or equatorial mount),

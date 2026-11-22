@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Earth and sky: two spheres on the page, turned by dragging. The Earth shows
+  the telescope at the emulated location with a ray along its pointing; the sky
+  shows the Hipparcos stars, the celestial equator, the horizon, the emulated
+  telescope's path and an orange square at each StarSense capture or plate
+  solve. They share one frame fixed to the stars, so the ray and the sky's
+  arrow stay parallel. The emulated telescope records its path for them.
+
 ## 1.3.0
 
 ### Added

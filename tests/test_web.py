@@ -674,3 +674,24 @@ def test_stream_starts_by_naming_the_run(web, tmp_path):
         assert other.feed.run_id != run
     finally:
         other.close()
+
+
+def test_the_earth_and_sky_spheres_get_stars_land_and_where_the_telescope_points(web):
+    session, base, _ = web
+    status, body = get(base, "/api/sky/stars")
+    stars = json.loads(body)
+    assert status == 200 and 2500 < len(stars["stars"]) < 3200 and stars["names"]["32349"] == "Sirius"
+    status, body = get(base, "/api/sky/land")
+    assert status == 200 and len(json.loads(body)["outlines"]) > 100
+    assert state(base)["sky_view"] is None  # nothing running yet
+    assert post(base, "/api/gps", {"enabled": True, "latitude": -34.6, "longitude": -58.4})[0] == 200
+    assert post(base, "/api/mount_emulator", {"enabled": True, "initial_alt": 45, "initial_az": 180, "confirm": True})[0] == 200
+    sky = state(base)["sky_view"]
+    assert sky["site"] == {"lat": -34.6, "lon": -58.4, "from": "GPS emulator"}
+    assert abs(sky["pointing"]["alt"] - 45) < 0.1 and abs(sky["pointing"]["dec"] + 79.6) < 0.5  # due south from Buenos Aires
+    status, body = get(base, "/api/mount_emulator/status")
+    assert json.loads(body)["sky_view"]["pointing"]["ra"] == pytest.approx(sky["pointing"]["ra"], abs=0.5)
+    trail = json.loads(get(base, "/api/sky/trail")[1])["trail"]
+    assert trail and abs(trail[-1][1] + 79.6) < 0.5  # where it points, as RA/Dec
+    assert post(base, "/api/sky/trail/clear")[0] == 200
+    assert len(json.loads(get(base, "/api/sky/trail")[1])["trail"]) <= 1

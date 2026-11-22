@@ -190,6 +190,15 @@
   .sky-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
   .sky-head p { margin: 0 0 10px; color: var(--muted); font-size: 0.9rem; }
   #ss-captures h3 { margin: 18px 0 4px; font-size: 1rem; }
+  .spheres { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  @media (max-width: 700px) { .spheres { grid-template-columns: minmax(0, 1fr); } }
+  .spheres figure { margin: 0; }
+  .spheres svg { width: 100%; height: auto; display: block; touch-action: none; cursor: grab; border-radius: 8px; background: #070b16; }
+  .spheres figcaption { font-size: 0.84rem; color: var(--muted); margin-top: 6px; min-height: 2.6em; }
+  .sphere-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.84rem; color: var(--muted); margin: 10px 0; }
+  .sphere-legend i { display: inline-block; width: 16px; height: 0; margin-right: 6px; vertical-align: 3px; }
+  .sphere-legend i.square { width: 9px; height: 9px; border: 2px solid #EF9F27; vertical-align: -1px; }
+  .sphere-legend i.arrow { border-top: 2px solid #EF9F27; }
   .capture-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 10px; }
   @media (max-width: 700px) { .capture-grid { grid-template-columns: minmax(0, 1fr); } }
   .capture-card { margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--panel); }
@@ -745,6 +754,35 @@
     <p class="hint">The positions the emulated V2 camera reported for its last four plate solves, newest first, with the Hipparcos stars there and where the telescope pointed, the place and the time used. The V2 sends only the position, not its stars, and its field of view has not been measured, so the stars are drawn with the original StarSense camera's field (6.9° × 5.2°).</p>
     <div id="ss2-grid" class="capture-grid"></div>
   </section>
+
+<section id="spheres-panel" class="panel" aria-labelledby="spheres-title" hidden>
+    <div class="sky-head">
+      <h2 id="spheres-title">Earth and sky</h2>
+      <p>Drag either sphere to turn it.</p>
+    </div>
+    <div class="spheres">
+      <figure>
+        <svg id="earth-sphere" viewBox="0 0 300 300" role="img" aria-label="The Earth, with the telescope at the emulated location and a ray along its pointing"></svg>
+        <figcaption id="earth-caption"></figcaption>
+      </figure>
+      <figure>
+        <svg id="sky-sphere" viewBox="0 0 300 300" role="img" aria-label="The sky: Hipparcos stars, the telescope's path and the solved plates"></svg>
+        <figcaption id="sky-caption-sphere"></figcaption>
+      </figure>
+    </div>
+    <div class="sphere-legend">
+      <span><i style="border-top:2px solid #378ADD"></i>Equator</span>
+      <span><i style="border-top:1px solid #5DCAA5"></i>Horizon</span>
+      <span><i style="border-top:2px dashed #85B7EB"></i>Telescope path</span>
+      <span><i class="square"></i>Plate solved</span>
+      <span><i class="arrow"></i>Telescope</span>
+    </div>
+    <div class="buttons">
+      <label class="switch inline"><input id="spheres-link" type="checkbox" checked><span>Turn together</span></label>
+      <button id="spheres-reset" type="button">Reset view</button>
+      <button id="spheres-clear" type="button">Clear path</button>
+    </div>
+  </section>
 </main>
 
 <footer class="site-footer">
@@ -889,6 +927,7 @@ function render(s) {
     : !v1Status.sky ? `Last capture: below the horizon, no stars (${v1Status.captures} so far).`
     : `Last capture: RA ${(v1Status.sky.ra / 15).toFixed(3)} h, Dec ${v1Status.sky.dec.toFixed(2)}°, rotation ${v1Status.sky.rotation}°, ${v1Status.points} points (${v1Status.captures} so far).`;
   renderMountEmulator(s.mount_emulator);
+  if (!mountPoll) updateSky(s.sky_view);  // while the telescope runs, its fast poll updates the spheres
   const running = Object.values(s.emulation || {}).filter((e) => e.enabled).length
     + (s.mount_emulator && s.mount_emulator.enabled ? 1 : 0);
   $("#emulators-count").textContent = running ? `· ${running} running` : "· none running";
@@ -1615,7 +1654,9 @@ function drawMount(status) {
 async function pollMount() {
   try {
     const response = await fetch("/api/mount_emulator/status");
-    drawMount(await response.json());
+    const status = await response.json();
+    drawMount(status);
+    updateSky(status.sky_view);
   } catch (error) { /* the next poll tries again */ }
 }
 
@@ -1703,6 +1744,8 @@ async function loadSolves(count) {
     const response = await fetch("/api/starsense/v2/solves", { cache: "no-store" });
     if (!response.ok) return;
     const solves = (await response.json()).solves;
+    SPH.solves = solves;
+    drawSpheres();
     $("#ss2-panel").hidden = !solves.length;
     renderCaptures(solves, $("#ss2-grid"), "Plate solve", "starsense-v2-solve");
   } catch (error) { shownSolves = -1; }
@@ -1714,6 +1757,8 @@ async function loadCaptures(count) {
     const response = await fetch("/api/starsense/v1/captures", { cache: "no-store" });
     if (!response.ok) return;
     const captures = (await response.json()).captures;
+    SPH.captures = captures;
+    drawSpheres();
     $("#ss-captures").hidden = !captures.length;
     renderCaptures(captures, $("#ss-capture-grid"), "Capture", "starsense-capture");
   } catch (error) { /* the next state update tries again */ shownCaptures = -1; }
@@ -1793,6 +1838,230 @@ function drawCapture(canvas, capture, title) {
   ctx.fillText(capture.sky ? `${title} ${capture.number} · RA ${formatRa(capture.sky.ra)} Dec ${formatDec(capture.sky.dec)} · Hipparcos`
     : `${title} ${capture.number}`, 16, height - 16);
 }
+
+// --- Earth and sky spheres ---------------------------------------------------
+// Both spheres share one frame fixed to the stars (RA/Dec): the Earth is turned by the
+// sidereal time, so the telescope's ray from its site is parallel to the sky's arrow.
+
+const SPH = { stars: null, names: {}, land: null, loading: false, view: null, trail: [], siteKey: null, running: null,
+              sky: null, captures: [], solves: [] };
+const DEG = Math.PI / 180;
+// Facing the location, tilted so it sits a little below the centre and the telescope's ray shows.
+const sphereDefault = () => {
+  const site = SPH.sky && SPH.sky.site;
+  return site ? { yaw: -90 - (site.lon + gmst(SPH.sky.time)), pitch: site.lat + 20 } : { yaw: -90, pitch: -20 };
+};
+const unit = (ra, dec) => [Math.cos(dec * DEG) * Math.cos(ra * DEG), Math.cos(dec * DEG) * Math.sin(ra * DEG), Math.sin(dec * DEG)];
+function gmst(iso) {
+  const days = Date.parse(iso) / 86400000 + 2440587.5 - 2451545.0;
+  return ((280.46061837 + 360.98564736629 * days) % 360 + 360) % 360;
+}
+function enuVector(site, time, alt, az) {
+  const la = site.lat * DEG, lo = (site.lon + gmst(time)) * DEG, a = alt * DEG, z = az * DEG;
+  const E = [-Math.sin(lo), Math.cos(lo), 0];
+  const N = [-Math.sin(la) * Math.cos(lo), -Math.sin(la) * Math.sin(lo), Math.cos(la)];
+  const U = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)];
+  const e = Math.cos(a) * Math.sin(z), n = Math.cos(a) * Math.cos(z), u = Math.sin(a);
+  return [0, 1, 2].map((i) => E[i] * e + N[i] * n + U[i] * u);
+}
+function turn(p, view) {
+  const y = view.yaw * DEG, x = view.pitch * DEG, [a, b, c] = p;
+  const a1 = a * Math.cos(y) - b * Math.sin(y), b1 = a * Math.sin(y) + b * Math.cos(y);
+  return [a1, b1 * Math.cos(x) - c * Math.sin(x), b1 * Math.sin(x) + c * Math.cos(x)];
+}
+const place = (p, view, r) => { const [x, y, z] = turn(p, view); return { x: 150 + x * r, y: 150 - z * r, front: y <= 0 }; };
+function svgAdd(parent, tag, attrs, text) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const key in attrs) node.setAttribute(key, attrs[key]);
+  if (text !== undefined) node.textContent = text;
+  parent.appendChild(node);
+  return node;
+}
+function curve(parent, points, view, r, front, attrs) {
+  let d = "", pen = false;
+  for (const p of points) {
+    const q = place(p, view, r);
+    if (q.front === front) { d += `${pen ? "L" : "M"}${q.x.toFixed(1)} ${q.y.toFixed(1)}`; pen = true; } else pen = false;
+  }
+  if (d) svgAdd(parent, "path", Object.assign({ d, fill: "none" }, attrs));
+}
+function graticule(parent, view, r, colour, front, toVector) {
+  for (let lon = 0; lon < 360; lon += 30) {
+    const pts = []; for (let lat = -90; lat <= 90; lat += 4) pts.push(toVector(lon, lat));
+    curve(parent, pts, view, r, front, { stroke: colour, "stroke-width": 0.5 });
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    if (!lat) continue;
+    const pts = []; for (let lon = 0; lon <= 360; lon += 4) pts.push(toVector(lon, lat));
+    curve(parent, pts, view, r, front, { stroke: colour, "stroke-width": 0.5 });
+  }
+  const eq = []; for (let lon = 0; lon <= 360; lon += 3) eq.push(toVector(lon, 0));
+  if (!front) curve(parent, eq, view, r, false, { stroke: "#378ADD", "stroke-width": 1, "stroke-dasharray": "3 4", opacity: 0.45 });
+  else curve(parent, eq, view, r, true, { stroke: "#378ADD", "stroke-width": 2 });
+}
+function svgArrow(parent, x1, y1, x2, y2, width) {
+  svgAdd(parent, "line", { x1, y1, x2, y2, stroke: "#EF9F27", "stroke-width": width, "stroke-linecap": "round" });
+  const a = Math.atan2(y2 - y1, x2 - x1), h = 7;
+  svgAdd(parent, "path", { d: `M${x2 - h * Math.cos(a - 0.45)} ${y2 - h * Math.sin(a - 0.45)}L${x2} ${y2}L${x2 - h * Math.cos(a + 0.45)} ${y2 - h * Math.sin(a + 0.45)}`,
+    fill: "none", stroke: "#EF9F27", "stroke-width": width, "stroke-linecap": "round", "stroke-linejoin": "round" });
+}
+function plates() {
+  const kept = [...SPH.captures.map((c) => ({ ...c, kind: "V1 capture" })), ...SPH.solves.map((c) => ({ ...c, kind: "V2 solve" }))]
+    .filter((c) => c.sky).sort((a, b) => a.time.localeCompare(b.time));
+  return kept.map((c, i) => ({ ...c, label: i + 1 }));
+}
+function drawEarth() {
+  const svg = $("#earth-sphere"), view = SPH.view.earth, r = 105, sky = SPH.sky, site = sky && sky.site;
+  svg.textContent = "";
+  const time = sky ? sky.time : new Date().toISOString();
+  const geo = (lon, lat) => unit(lon + gmst(time), lat);
+  let ray = null;
+  if (site && sky.pointing) {
+    const base = geo(site.lon, site.lat), dir = enuVector(site, time, sky.pointing.alt, sky.pointing.az);
+    ray = { from: place(base, view, r), to: place([0, 1, 2].map((i) => base[i] + dir[i] * 0.85), view, r) };
+  }
+  if (ray && !ray.from.front) svgArrow(svg, ray.from.x, ray.from.y, ray.to.x, ray.to.y, 1.5);
+  svgAdd(svg, "circle", { cx: 150, cy: 150, r, fill: "#0C447C" });
+  graticule(svg, view, r, "rgba(181,212,244,0.28)", true, geo);
+  for (const outline of (SPH.land ? SPH.land.outlines : [])) {
+    const pts = outline.map(([lon, lat]) => place(geo(lon, lat), view, r));
+    if (!pts.some((q) => q.front)) continue;
+    // Points on the far side are pushed out to the globe's edge, so the visible part fills.
+    const shape = pts.map((q) => {
+      if (q.front) return q;
+      const dx = q.x - 150, dy = q.y - 150, d = Math.hypot(dx, dy) || 1;
+      return { x: 150 + dx / d * r, y: 150 + dy / d * r };
+    });
+    svgAdd(svg, "polygon", { points: shape.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" "), fill: "#3B6D11" });
+    curve(svg, outline.map(([lon, lat]) => geo(lon, lat)), view, r, true, { stroke: "#97C459", "stroke-width": 0.8 });
+  }
+  svgAdd(svg, "circle", { cx: 150, cy: 150, r, fill: "none", stroke: "#85B7EB", "stroke-width": 1 });
+  if (site) {
+    const q = place(geo(site.lon, site.lat), view, r);
+    if (ray && ray.from.front) svgArrow(svg, ray.from.x, ray.from.y, ray.to.x, ray.to.y, 2);
+    if (q.front) {
+      svgAdd(svg, "circle", { cx: q.x, cy: q.y, r: 4, fill: "#EF9F27" });
+      svgAdd(svg, "text", { x: q.x + 8, y: q.y + 14, fill: "#FAEEDA", "font-size": 12 }, "Telescope");
+    } else svgAdd(svg, "text", { x: 12, y: 288, fill: "#9aa4bd", "font-size": 11 }, "Telescope on the far side");
+  } else svgAdd(svg, "text", { x: 150, y: 290, fill: "#F0997B", "font-size": 11, "text-anchor": "middle" }, "No location: switch on the GPS emulator");
+  const pole = place([0, 0, 1], view, r);
+  if (pole.front) svgAdd(svg, "text", { x: pole.x - 4, y: pole.y - 6, fill: "#B5D4F4", "font-size": 11 }, "N");
+  $("#earth-caption").textContent = !site ? "Where the telescope is: no location yet (GPS emulator, or the one CPWI sends)."
+    : `${site.lat.toFixed(4)}, ${site.lon.toFixed(4)} (${site.from})` + (sky.pointing
+      ? ` · pointing altitude ${sky.pointing.alt.toFixed(1)}°, azimuth ${sky.pointing.az.toFixed(1)}°` : " · no emulated telescope");
+}
+function drawSkySphere() {
+  const svg = $("#sky-sphere"), view = SPH.view.sky, r = 130, sky = SPH.sky, site = sky && sky.site;
+  svg.textContent = "";
+  const at = (p) => place(p, view, r);
+  graticule(svg, view, r, "rgba(143,195,255,0.06)", false, unit);
+  graticule(svg, view, r, "rgba(143,195,255,0.16)", true, unit);
+  const labels = [];
+  for (const [ra, dec, mag, hip] of SPH.stars || []) {
+    const q = at(unit(ra, dec));
+    if (!q.front) continue;
+    svgAdd(svg, "circle", { cx: q.x.toFixed(1), cy: q.y.toFixed(1), r: Math.max(0.35, 2.4 - 0.4 * mag).toFixed(2), fill: "#dfe5f5",
+      opacity: Math.max(0.3, 1 - mag * 0.12).toFixed(2) });
+    if (mag <= 1.3 && SPH.names[hip] && !labels.some(([x, y]) => Math.abs(x - q.x) < 52 && Math.abs(y - q.y) < 13)) {
+      labels.push([q.x, q.y]);
+      svgAdd(svg, "text", { x: q.x + 6, y: q.y - 5, fill: "#9aa4bd", "font-size": 10 }, SPH.names[hip]);
+    }
+  }
+  for (const [label, p] of [["SCP", [0, 0, -1]], ["NCP", [0, 0, 1]]]) {
+    const q = at(p);
+    if (q.front) { svgAdd(svg, "circle", { cx: q.x, cy: q.y, r: 2.5, fill: "none", stroke: "#85B7EB" }); svgAdd(svg, "text", { x: q.x + 6, y: q.y + 4, fill: "#85B7EB", "font-size": 11 }, label); }
+  }
+  if (SPH.trail.length > 1) curve(svg, SPH.trail.map(([ra, dec]) => unit(ra, dec)), view, r, true, { stroke: "#85B7EB", "stroke-width": 1.5, "stroke-dasharray": "4 3" });
+  if (site) {
+    const horizon = []; for (let az = 0; az <= 360; az += 4) horizon.push(enuVector(site, sky.time, 0, az));
+    curve(svg, horizon, view, r, true, { stroke: "#5DCAA5", "stroke-width": 1 });
+    const zenith = at(enuVector(site, sky.time, 90, 0));
+    if (zenith.front) { svgAdd(svg, "circle", { cx: zenith.x, cy: zenith.y, r: 2, fill: "#9FE1CB" }); svgAdd(svg, "text", { x: zenith.x + 5, y: zenith.y - 4, fill: "#9FE1CB", "font-size": 11 }, "Zenith"); }
+  }
+  for (const plate of plates()) {
+    const q = at(unit(plate.sky.ra, plate.sky.dec));
+    if (!q.front) continue;
+    const mark = svgAdd(svg, "g", {});
+    svgAdd(mark, "title", {}, `${plate.kind} ${plate.number}: RA ${formatRa(plate.sky.ra)}, Dec ${formatDec(plate.sky.dec)}, ${plate.time.replace("T", " ").replace("+00:00", " UTC")}`);
+    svgAdd(mark, "rect", { x: q.x - 6, y: q.y - 6, width: 12, height: 12, fill: "none", stroke: "#EF9F27", "stroke-width": 2 });
+    svgAdd(mark, "text", { x: q.x + 9, y: q.y + 16, fill: "#FAC775", "font-size": 12, "font-weight": 500 }, String(plate.label));
+  }
+  svgAdd(svg, "circle", { cx: 150, cy: 150, r: 6, fill: "#185FA5", stroke: "#85B7EB", "stroke-width": 0.5 });
+  const pointing = sky && sky.pointing;
+  if (pointing && pointing.ra !== undefined) {
+    const tip = place(unit(pointing.ra, pointing.dec), view, r * 0.94);
+    svgArrow(svg, 150, 150, tip.x, tip.y, tip.front ? 2 : 1);
+  }
+  svgAdd(svg, "circle", { cx: 150, cy: 150, r, fill: "none", stroke: "#85B7EB", "stroke-width": 1 });
+  const count = plates().length;
+  $("#sky-caption-sphere").textContent = (pointing && pointing.ra !== undefined
+    ? `Telescope at RA ${formatRa(pointing.ra)}, Dec ${formatDec(pointing.dec)}` : "No telescope pointing to show")
+    + ` · ${count} plate${count === 1 ? "" : "s"} solved · Hipparcos stars to magnitude 5.5`;
+}
+function drawSpheres() {
+  if (!SPH.view || $("#spheres-panel").hidden) return;
+  drawEarth();
+  drawSkySphere();
+}
+async function loadTrail() {
+  // The path recorded so far (also while no page was open); live updates extend it.
+  try {
+    const trail = (await (await fetch("/api/sky/trail", { cache: "no-store" })).json()).trail;
+    if (trail.length) SPH.trail = trail.concat(SPH.trail);
+    drawSpheres();
+  } catch (error) { /* the live path still grows */ }
+}
+async function loadSphereData() {
+  if (SPH.loading || SPH.stars) return;
+  SPH.loading = true;
+  try {
+    const [stars, land] = await Promise.all([fetch("/api/sky/stars").then((r) => r.json()), fetch("/api/sky/land").then((r) => r.json())]);
+    SPH.stars = stars.stars; SPH.names = stars.names; SPH.land = land;
+  } catch (error) { /* tried again on the next update */ }
+  SPH.loading = false;
+  drawSpheres();
+}
+function updateSky(skyView) {
+  SPH.sky = skyView || null;
+  const site = SPH.sky && SPH.sky.site, pointing = SPH.sky && SPH.sky.pointing;
+  const key = site ? `${site.lat},${site.lon}` : "";
+  const running = Boolean(pointing);
+  if (key !== SPH.siteKey || running !== SPH.running) { SPH.siteKey = key; SPH.running = running; SPH.trail = []; loadTrail(); }
+  if (pointing && pointing.ra !== undefined) {
+    const last = SPH.trail[SPH.trail.length - 1];
+    if (!last || Math.abs(last[0] - pointing.ra) + Math.abs(last[1] - pointing.dec) > 0.05) SPH.trail.push([pointing.ra, pointing.dec]);
+    if (SPH.trail.length > 4000) SPH.trail.shift();
+  }
+  const show = Boolean(site || pointing || plates().length);
+  $("#spheres-panel").hidden = !show;
+  if (!show) return;
+  if (!SPH.view || (site && !SPH.viewHasSite)) { SPH.view = { earth: sphereDefault(), sky: sphereDefault() }; SPH.viewHasSite = Boolean(site); }
+  loadSphereData();
+  drawSpheres();
+}
+function sphereDrag(id, key) {
+  const svg = $(id);
+  let last = null;
+  svg.addEventListener("pointerdown", (e) => { last = [e.clientX, e.clientY]; svg.setPointerCapture(e.pointerId); svg.style.cursor = "grabbing"; });
+  svg.addEventListener("pointermove", (e) => {
+    if (!last || !SPH.view) return;
+    const scale = 300 / svg.getBoundingClientRect().width, dx = (e.clientX - last[0]) * scale, dy = (e.clientY - last[1]) * scale;
+    last = [e.clientX, e.clientY];
+    for (const k of $("#spheres-link").checked ? ["earth", "sky"] : [key]) {
+      SPH.view[k].yaw -= dx * 0.5;
+      SPH.view[k].pitch = Math.max(-90, Math.min(90, SPH.view[k].pitch - dy * 0.5));
+    }
+    drawSpheres();
+  });
+  const up = () => { last = null; svg.style.cursor = "grab"; };
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", up);
+}
+sphereDrag("#earth-sphere", "earth");
+sphereDrag("#sky-sphere", "sky");
+$("#spheres-reset").addEventListener("click", () => { SPH.view = { earth: sphereDefault(), sky: sphereDefault() }; drawSpheres(); });
+$("#spheres-clear").addEventListener("click", async (e) => { await act("/api/sky/trail/clear", {}, e.currentTarget); SPH.trail = []; drawSpheres(); });
+$("#spheres-link").addEventListener("change", (e) => { if (e.target.checked && SPH.view) { SPH.view.sky = { ...SPH.view.earth }; drawSpheres(); } });
 
 // --- traffic log ------------------------------------------------------------
 

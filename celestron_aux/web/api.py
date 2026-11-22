@@ -10,11 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-from .. import __copyright__, __version__, catalog, wireshark
+from .. import __copyright__, __version__, catalog, sky_data, wireshark
 from ..app import ScannerApp
 from ..catalog import Addr
 from ..motion import Axis, MotionRefused
 from ..protocol import AuxPacket
+from ..star_names import STAR_NAMES
 from ..transport.factory import LIVE_MODES
 from ..transport.playback import load_capture
 from ..transport.tcp import DEFAULT_PORT
@@ -114,6 +115,7 @@ class WebApi:
             "wifi": session.wifi_state(),
             "dew": session.dew_state(),
             "starsense_v1": session.starsense_v1_state(),
+            "sky_view": session.sky_view(),
             "mount_emulator": {**session.mount_state(), "models": mount_table()},
             "emulation": {kind: {"enabled": (session.gps_position is not None if kind == "gps"
                                              else session.wifi_state()["enabled"] if kind == "wifi"
@@ -503,6 +505,22 @@ class WebApi:
             raise ApiError(400, f"{str(exc).strip(chr(39)).capitalize()}.") from exc
         return {"message": f"Polar axis knobs: inclination {float(body['inclination']):g}°, rotation {float(body['rotation']):g}°."}
 
+    def sky_stars(self) -> Json:
+        """The stars the page's sky sphere draws: Hipparcos to magnitude 5.5 (RA, Dec, mag, HIP), and names."""
+        return {"stars": sky_data.bright_stars(), "names": {str(hip): name for hip, name in STAR_NAMES.items()}}
+
+    def sky_land(self) -> Json:
+        """The continents the page's Earth sphere draws (Natural Earth 1:110m, public domain)."""
+        return sky_data.land()
+
+    def sky_trail(self) -> Json:
+        """The emulated telescope's path on the sky, [RA, Dec] pairs, oldest first."""
+        return {"trail": self.session.sky_trail()}
+
+    def clear_sky_trail(self, body: Mapping[str, Any]) -> Json:
+        self.session.clear_sky_trail()
+        return {"message": "Cleared the telescope's path."}
+
     def starsense_v1_captures(self) -> Json:
         """The emulated StarSense (V1) camera's last captures, newest first."""
         return {"captures": self.session.starsense_v1_captures()}
@@ -513,7 +531,10 @@ class WebApi:
 
     def mount_status(self) -> Json:
         """Where the emulated telescope points, polled often by the page while it runs."""
-        return self.session.mount_state()["status"] or {"enabled": False}
+        status = self.session.mount_state()["status"]
+        if not status or not status.get("enabled"):
+            return {"enabled": False}
+        return {**status, "sky_view": self.session.sky_view()}
 
     def emulated_version(self, body: Mapping[str, Any]) -> Json:
         kind = body.get("device")

@@ -62,6 +62,7 @@ POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
     "/api/starsense/sample": WebApi.starsense_sample,
     "/api/starsense/emulate": WebApi.starsense_emulation,
     "/api/starsense/v1": WebApi.starsense_v1,
+    "/api/sky/trail/clear": WebApi.clear_sky_trail,
     "/api/emulate": WebApi.emulate,
     "/api/emulate/version": WebApi.emulated_version,
     "/api/wifi": WebApi.wifi,
@@ -202,6 +203,12 @@ def _make_handler(server: WebServer) -> type:
                 self._ports()
             elif url.path == "/api/mount_emulator/status":
                 self._send_json(HTTPStatus.OK, server.api.mount_status())
+            elif url.path == "/api/sky/stars":
+                self._send_json(HTTPStatus.OK, server.api.sky_stars())
+            elif url.path == "/api/sky/trail":
+                self._send_json(HTTPStatus.OK, server.api.sky_trail())
+            elif url.path == "/api/sky/land":
+                self._send_json(HTTPStatus.OK, server.api.sky_land())
             elif url.path == "/api/starsense/v2/solves":
                 self._send_json(HTTPStatus.OK, server.api.starsense_v2_solves())
             elif url.path == "/api/starsense/v1/captures":

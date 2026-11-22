@@ -459,6 +459,23 @@ random), and an all-zero record when it is full.
   capture status (`09 NN`) as a guess. A recording of CPWI with a real camera
   would settle it.
 
+### Earth and sky
+
+When a location is known (the GPS emulator's, or the one CPWI sends) or the
+emulated telescope runs, the page shows two spheres you can turn by dragging:
+
+- **The Earth**, with the continents, the equator, and the telescope at its
+  location with a ray along where it points.
+- **The sky**: the Hipparcos stars to magnitude 5.5 (the brightest named), the
+  celestial equator and poles, the local horizon and zenith, the telescope's
+  path as it moved, an orange square at each StarSense capture or plate solve,
+  and an arrow from the Earth at the centre to where the telescope points.
+
+Both use one frame fixed to the stars, with the Earth turned to the sidereal
+time, so with **Turn together** on the Earth's ray and the sky's arrow stay
+parallel. The emulated telescope records its path itself, so it is there even
+for moves made while no page was open.
+
 ### Limits of the emulation
 
 The emulators follow captures of real devices and community reverse
@@ -474,3 +491,6 @@ The emulated StarSense camera's stars come from the Hipparcos catalogue
 (ESA 1997, *The Hipparcos and Tycho Catalogues*, ESA SP-1200), as published by
 NASA's HEASARC. `scripts/build_star_catalog.py` rebuilds the cut that ships with
 celestron-aux.
+
+The continents on the Earth sphere are Natural Earth's 1:110m land outlines
+(public domain); `scripts/build_land_outline.py` rebuilds them.

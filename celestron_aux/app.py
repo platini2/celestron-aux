@@ -199,6 +199,38 @@ class ScannerApp:
             return True
         return self.bus.send(frame, pace=False)
 
+    def sky_view(self) -> dict:
+        """For the page's Earth and sky spheres: where the scanner is (the GPS emulator's
+        location, else the one CPWI sent), where the emulated telescope points, and when."""
+        when = datetime.now(timezone.utc)
+        location = self.gps.position
+        source = "GPS emulator"
+        if location is None and self.starsense_v2.location is not None:
+            location, source = self.starsense_v2.location, "CPWI"
+        site = None if location is None else {"lat": location[0], "lon": location[1], "from": source}
+        pointing = None
+        sky = self.mount_emulator.sky_pointing()
+        if sky is not None:
+            alt, az, alt_az = sky
+            pointing = {"alt": round(alt, 4), "az": round(az % 360, 4), "alt_az": alt_az}
+            if location is not None:
+                ra, dec = altaz_to_j2000(alt, az, location[0], location[1], when)
+                pointing.update(ra=round(ra % 360, 4), dec=round(dec, 4))
+        return {"time": when.isoformat(timespec="milliseconds"), "site": site, "pointing": pointing}
+
+    def sky_trail(self) -> List[List[float]]:
+        """The emulated telescope's path as [RA, Dec] (J2000, degrees), oldest first, for the
+        page's sky sphere; empty without a location."""
+        view = self.sky_view()
+        if view["site"] is None:
+            return []
+        latitude, longitude = view["site"]["lat"], view["site"]["lon"]
+        path = []
+        for stamp, alt, az in self.mount_emulator.trail():
+            ra, dec = altaz_to_j2000(alt, az, latitude, longitude, datetime.fromtimestamp(stamp, timezone.utc))
+            path.append([round(ra % 360, 3), round(dec, 3)])
+        return path
+
     def _starsense_v1_sky(self) -> Optional[Tuple[float, float, float]]:
         """RA, Dec and rotation the emulated StarSense camera sees; None below the horizon.
 
