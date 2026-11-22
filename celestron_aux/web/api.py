@@ -507,6 +507,10 @@ class WebApi:
         """The emulated StarSense (V1) camera's last captures, newest first."""
         return {"captures": self.session.starsense_v1_captures()}
 
+    def starsense_v2_solves(self) -> Json:
+        """The emulated StarSense AutoAlign V2's last plate solves, newest first."""
+        return {"solves": self.session.starsense_v2_solves()}
+
     def mount_status(self) -> Json:
         """Where the emulated telescope points, polled often by the page while it runs."""
         return self.session.mount_state()["status"] or {"enabled": False}

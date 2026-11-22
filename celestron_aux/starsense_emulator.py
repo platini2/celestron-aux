@@ -28,10 +28,12 @@ import random
 import struct
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
+from . import star_catalog
 from .bus import BusEvent
 from .catalog import Addr
 from .protocol import AuxPacket
@@ -76,6 +78,7 @@ EPOCH_2000 = datetime(2000, 1, 1, tzinfo=timezone.utc)
 # from the image rotation; and the calibration result it reported (pixels).
 MIN_SOLVE_ALTITUDE = 5.0  # degrees: lower than this a real camera sees ground or haze, and fails
 FAILED = 4                # the status a real camera reports for a failed solve
+KEPT_SOLVES = 4  # the last plate solves kept for the page (an alignment takes about four)
 SOLVE_ERROR = 12.0  # arcsec: the scatter of an emulated solve on each axis (never exactly zero)
 OFFSET_LENGTH = 1.1178
 OFFSET_ANGLE = 117.6
@@ -152,10 +155,15 @@ class StarSenseEmulator:
         self._lock = threading.Lock()
         self._enabled = False
         self._location: Optional[Tuple[float, float]] = None  # lat, lon from CPWI
+        #: Where the scanner is when CPWI has sent no location (the GPS emulator's), or None.
+        self.location_source: Optional[Callable[[], Optional[Tuple[float, float]]]] = None
         self._time_offset = 0.0  # CPWI's clock minus ours, seconds
         self._solves = 0
         self._solve_started: Optional[float] = None
         self._solution: Optional[Tuple[float, float, float]] = None  # ra, dec, rotation
+        self._solve_details: Dict[str, Any] = {}  # where the last solution came from
+        self._kept: Deque[Dict[str, Any]] = deque(maxlen=KEPT_SOLVES)
+        self._attempts = 0  # plate solves started, failed ones included
         self._calibration_started: Optional[float] = None
         self._calibration_star: Optional[Tuple[float, float]] = None
         self._calibration: Optional[List[float]] = None  # the six 0x08 slots
@@ -193,8 +201,8 @@ class StarSenseEmulator:
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"enabled": self._enabled, "solves": self._solves, "calibrated": self._calibration is not None,
-                    "location_known": self._location is not None}
+            return {"enabled": self._enabled, "solves": self._solves, "attempts": self._attempts, "calibrated": self._calibration is not None,
+                    "location_known": self._site() is not None}
 
     # --- bus listener -----------------------------------------------------------------
 
@@ -227,8 +235,11 @@ class StarSenseEmulator:
             pointing = self.pointing_source() if self.pointing_source is not None else None
             if pointing is not None and pointing[0] < MIN_SOLVE_ALTITUDE:
                 self._solution = None  # looking at the ground: this solve will fail
+                self._solve_details = {"source": "below the horizon", "alt": round(pointing[0], 3),
+                                       "az": round(pointing[1] % 360, 3)}
             else:
                 self._solution = self._next_point()
+            self._keep_solve()
             return b""
         if command == GET_PLATE_STATUS:
             if not self._solve_done():
@@ -278,9 +289,10 @@ class StarSenseEmulator:
         error as an angle on the sky (so CPWI's total error is the real distance), in degrees."""
         axis = self.polar_axis_source() if self.polar_axis_source is not None else None
         measured = self._aspa_adjusting or (self._aspa_active and self._aspa_turn >= ASPA_SPAN)
-        if axis is None or self._location is None or not measured:
+        site = self._site()
+        if axis is None or site is None or not measured:
             return ASPA_ERROR_NONE
-        latitude = self._location[0]
+        latitude = site[0]
         pole_alt, pole_az = abs(latitude), (180.0 if latitude < 0 else 0.0)
         alt_error = axis[0] - pole_alt
         azimuth_error = (((axis[1] - pole_az + 180) % 360) - 180) * math.cos(math.radians(pole_alt))
@@ -289,10 +301,11 @@ class StarSenseEmulator:
     def _pole_j2000(self) -> Optional[Tuple[float, float]]:
         """Where the emulated mount's polar axis points (J2000 RA/Dec), if there is one."""
         axis = self.polar_axis_source() if self.polar_axis_source is not None else None
-        if axis is None or self._location is None:
+        site = self._site()
+        if axis is None or site is None:
             return None
         when = self._now() + timedelta(seconds=self._time_offset)
-        return altaz_to_j2000(axis[0], axis[1], self._location[0], self._location[1], when)
+        return altaz_to_j2000(axis[0], axis[1], site[0], site[1], when)
 
     def _aspa_pole(self) -> bytes:
         pole = self._pole_j2000()
@@ -322,6 +335,35 @@ class StarSenseEmulator:
             sent = EPOCH_2000 + timedelta(seconds=int.from_bytes(data[:4], "big"))
             self._time_offset = (sent - self._now()).total_seconds()
 
+    def solves(self) -> List[Dict[str, Any]]:
+        """The last plate solves, newest first: when, the position reported, where it came
+        from, and the Hipparcos stars at that position (x, y, mag, HIP), drawn with the
+        StarSense (V1) camera's measured field, as the V2's own is not known."""
+        with self._lock:
+            return [dict(solve) for solve in reversed(self._kept)]
+
+    def _site(self) -> Optional[Tuple[float, float]]:
+        """The location to work with: CPWI's, else the one ``location_source`` gives."""
+        if self._location is not None:
+            return self._location
+        return self.location_source() if self.location_source is not None else None
+
+    def _keep_solve(self) -> None:
+        """Note the solve just started, for the page. Called with the lock held."""
+        self._attempts += 1
+        solution = self._solution
+        points = []
+        if solution is not None:
+            points = [[round(star.x, 1), round(star.y, 1), round(star.mag, 2), star.hip]
+                      for star in star_catalog.in_view(*solution)]
+        when = self._now() + timedelta(seconds=self._time_offset)
+        self._kept.append({
+            "number": self._attempts, "time": when.isoformat(timespec="seconds"),
+            "sky": None if solution is None else {"ra": round(solution[0], 4), "dec": round(solution[1], 4),
+                                                  "rotation": round(solution[2], 2)},
+            "details": dict(self._solve_details), "points": points,
+        })
+
     def _next_point(self) -> Tuple[float, float, float]:
         solved = self._solve_emulated_telescope()
         if solved is not None:
@@ -329,23 +371,33 @@ class StarSenseEmulator:
             self._aspa_note_solve(solved[0], solved[1])
             return solved
         point = self._points[self._solves % len(self._points)]
+        self._solve_details = {"source": "recorded",
+                               "reason": "no location: CPWI has sent none and the GPS emulator is off"
+                               if self.pointing_source is not None and self.pointing_source() is not None
+                               else "no emulated telescope"}
         self._solves += 1
-        if self._location is None:
+        site = self._site()
+        if site is None:
             ra = point.ra
         else:
             when = self._now() + timedelta(seconds=self._time_offset)
-            ra = (gmst_degrees(when) + self._location[1] - point.hour_angle * 15) % 360
+            ra = (gmst_degrees(when) + site[1] - point.hour_angle * 15) % 360
         return ra, point.dec, point.rotation
 
     def _solve_emulated_telescope(self) -> Optional[Tuple[float, float, float]]:
         """RA/Dec (J2000) of where the emulated telescope points now, with a small solve error."""
         pointing = self.pointing_source() if self.pointing_source is not None else None
-        if pointing is None or self._location is None:
+        site = self._site()
+        if pointing is None or site is None:
             return None
         alt, az, alt_az = pointing
-        latitude, longitude = self._location
+        latitude, longitude = site
         when = self._now() + timedelta(seconds=self._time_offset)
         ra, dec = altaz_to_j2000(alt, az, latitude, longitude, when)
+        self._solve_details = {"source": "telescope", "alt": round(alt, 3), "az": round(az % 360, 3),
+                               "latitude": latitude, "longitude": longitude,
+                               "location_from": "CPWI" if self._location is not None else "GPS emulator",
+                               "time": when.isoformat(timespec="seconds")}
         dec += self._rng.gauss(0, SOLVE_ERROR) / 3600
         ra += self._rng.gauss(0, SOLVE_ERROR) / 3600 / max(0.01, math.cos(math.radians(dec)))
         rotation = self._points[0].rotation

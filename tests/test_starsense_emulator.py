@@ -379,3 +379,48 @@ def test_directions_exactly_at_the_pole_never_raise():
     for dec in (89.9999999, -89.9999999, 90.0, -90.0):
         ra, dec2 = offset_position(10.0, dec, 1.1178, 0.0)       # the offset from a solve near a pole
         assert -90.0 <= dec2 <= 90.0
+
+
+def test_the_last_four_solves_are_kept_with_their_stars_and_where_they_came_from():
+    mount, camera, sent, clock = coupled(model="evolution", initial_alt=30, initial_az=180)
+    positions = []
+    for turn in range(5):
+        mount.answer(0x10, 0x02, int(turn * 20 / 360 * (1 << 24)).to_bytes(3, "big"))
+        clock.t += 120
+        positions.append(solve(camera, sent))
+    kept = camera.solves()
+    assert [solve_["number"] for solve_ in kept] == [5, 4, 3, 2]
+    newest = kept[0]
+    assert newest["details"]["source"] == "telescope" and newest["details"]["location_from"] == "CPWI"
+    assert separation((newest["sky"]["ra"], newest["sky"]["dec"]), positions[-1]) < 0.01  # what CPWI was told
+    assert newest["points"] and all(point[3] for point in newest["points"])  # Hipparcos stars only
+    assert camera.snapshot()["attempts"] == 5
+
+
+def test_a_solve_without_a_location_says_it_used_a_recorded_point():
+    camera, sent, _ = emulator()
+    ask(camera, sent, 0x01)
+    details = camera.solves()[0]["details"]
+    assert details["source"] == "recorded" and "no emulated telescope" in details["reason"]
+
+
+def test_without_a_location_from_cpwi_the_gps_emulators_is_used():
+    app = ScannerApp(FakeMount({}), AppConfig(save_starsense_images=False), stream=io.StringIO())
+    app.bus._inter_frame_delay = 0
+    app.start(initial_scan=False)
+    try:
+        from celestron_aux.mount_emulator import MountSetup
+
+        app.mount_emulator.configure(MountSetup(initial_alt=45, initial_az=180))
+        app.enable_emulation("mount")
+        app.gps.enable(-34.6, -58.4)
+        app.starsense_v2.solve_time = 0
+        app.enable_emulation("starsense")
+        sent = []
+        app.starsense_v2._send = sent.append
+        ask(app.starsense_v2, sent, 0x01)
+        details = app.starsense_v2.solves()[0]["details"]
+        assert details["source"] == "telescope" and details["location_from"] == "GPS emulator"
+        assert details["latitude"] == -34.6
+    finally:
+        app.close()

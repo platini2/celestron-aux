@@ -342,7 +342,15 @@ returns four recorded alignment points in turn.
 
 CPWI sends the camera the location from its own site settings, so give CPWI's
 latitude the right sign (negative in the southern hemisphere), or the sky the
-camera "sees" will be the wrong one.
+camera "sees" will be the wrong one. Until CPWI sends one (or for solves you
+start from this page), the camera uses the GPS emulator's location.
+
+Its **last four plate solves** appear in their own box: a chart of the
+Hipparcos stars at each reported position, with where the telescope pointed,
+the place and time used, and **Save as JPG**. The V2 reports only the position,
+not its stars, and its field of view has not been measured, so the charts use
+the original StarSense camera's field (6.9° x 5.2°). A solve that could not
+follow the telescope says so in red.
 
 The **StarSense AutoAlign V2** box in Device control can also start a plate
 solve by itself and shows the result, the telescope position, the image

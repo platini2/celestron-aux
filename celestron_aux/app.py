@@ -113,6 +113,7 @@ class ScannerApp:
         self.starsense_v1.sky_source = self._starsense_v1_sky  # photographs where the emulated mount points
         self.starsense_v2.pointing_source = self.mount_emulator.sky_pointing  # solves follow the emulated mount
         self.starsense_v2.polar_axis_source = self.mount_emulator.polar_axis  # and ASPA finds its polar axis
+        self.starsense_v2.location_source = lambda: self.gps.position  # when CPWI has sent no location
         self.emulators: Dict[str, Emulator] = {
             "starsense": self.starsense_v2, "focuser": self.focuser_emulator, "dew": self.dew_emulator,
             "wifi": self.wifi_module, "mount": self.mount_emulator, "starsense1": self.starsense_v1,

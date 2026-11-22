@@ -739,6 +739,12 @@
       <div id="ss-capture-grid" class="capture-grid"></div>
     </div>
   </section>
+
+<section id="ss2-panel" class="panel" aria-labelledby="ss2-title" hidden>
+    <h2 id="ss2-title">StarSense AutoAlign V2 emulator: last plate solves</h2>
+    <p class="hint">The positions the emulated V2 camera reported for its last four plate solves, newest first, with the Hipparcos stars there and where the telescope pointed, the place and the time used. The V2 sends only the position, not its stars, and its field of view has not been measured, so the stars are drawn with the original StarSense camera's field (6.9° × 5.2°).</p>
+    <div id="ss2-grid" class="capture-grid"></div>
+  </section>
 </main>
 
 <footer class="site-footer">
@@ -873,7 +879,11 @@ function render(s) {
   const v1 = s.starsense_v1 || {};
   $("#ss-recorded").checked = Boolean(v1.recorded_list);
   const v1Status = v1.status;
-  if (v1Status) loadCaptures(v1Status.captures); else if (shownCaptures !== -1) { shownCaptures = -1; renderCaptures([]); }
+  if (v1Status) loadCaptures(v1Status.captures);
+  else if (shownCaptures !== -1) { shownCaptures = -1; $("#ss-captures").hidden = true; $("#ss-capture-grid").textContent = ""; }
+  const v2 = s.starsense_emulation || {};
+  if (v2.attempts !== undefined) loadSolves(v2.attempts);
+  else if (shownSolves !== -1) { shownSolves = -1; $("#ss2-panel").hidden = true; $("#ss2-grid").textContent = ""; }
   $("#ss-v1-sky").textContent = !v1Status || !v1Status.captures ? ""
     : v1Status.recorded_list && !v1Status.sky ? `Last capture: the recorded star list (${v1Status.captures} so far).`
     : !v1Status.sky ? `Last capture: below the horizon, no stars (${v1Status.captures} so far).`
@@ -1676,6 +1686,7 @@ function drawStars(item) {
 // --- the emulated camera's last captures ---------------------------------------
 
 let shownCaptures = -1;
+let shownSolves = -1;
 function formatRa(degrees) {
   const total = Math.round(((degrees % 360) + 360) % 360 / 15 * 3600);
   const h = Math.floor(total / 3600), m = Math.floor(total / 60) % 60, sec = total % 60;
@@ -1685,26 +1696,37 @@ function formatDec(degrees) {
   const total = Math.round(Math.abs(degrees) * 60);
   return `${degrees < 0 ? "−" : "+"}${Math.floor(total / 60)}°${String(total % 60).padStart(2, "0")}′`;
 }
+async function loadSolves(count) {
+  if (count === shownSolves) return;
+  shownSolves = count;
+  try {
+    const response = await fetch("/api/starsense/v2/solves", { cache: "no-store" });
+    if (!response.ok) return;
+    const solves = (await response.json()).solves;
+    $("#ss2-panel").hidden = !solves.length;
+    renderCaptures(solves, $("#ss2-grid"), "Plate solve", "starsense-v2-solve");
+  } catch (error) { shownSolves = -1; }
+}
 async function loadCaptures(count) {
   if (count === shownCaptures) return;
   shownCaptures = count;
   try {
     const response = await fetch("/api/starsense/v1/captures", { cache: "no-store" });
     if (!response.ok) return;
-    renderCaptures((await response.json()).captures);
+    const captures = (await response.json()).captures;
+    $("#ss-captures").hidden = !captures.length;
+    renderCaptures(captures, $("#ss-capture-grid"), "Capture", "starsense-capture");
   } catch (error) { /* the next state update tries again */ shownCaptures = -1; }
 }
-function renderCaptures(captures) {
-  const grid = $("#ss-capture-grid");
+function renderCaptures(captures, grid, title, filename) {
   grid.textContent = "";
-  $("#ss-captures").hidden = !captures.length;
   for (const capture of captures) {
     const card = document.createElement("figure");
     card.className = "capture-card";
     const canvas = document.createElement("canvas");
     canvas.width = 1280; canvas.height = 960;
-    canvas.setAttribute("aria-label", `Star chart of capture ${capture.number}`);
-    drawCapture(canvas, capture);
+    canvas.setAttribute("aria-label", `Star chart of ${title.toLowerCase()} ${capture.number}`);
+    drawCapture(canvas, capture, title);
     const caption = document.createElement("figcaption");
     const hip = capture.points.filter((p) => p[3]).length;
     const where = capture.sky ? `RA ${formatRa(capture.sky.ra)}, Dec ${formatDec(capture.sky.dec)}, rotation ${capture.sky.rotation.toFixed(1)}°` : "no sky";
@@ -1715,17 +1737,21 @@ function renderCaptures(captures) {
     } else if (d.source === "recorded list") {
       how = "The recorded real star list (switch on).";
     } else if (d.source === "recorded") {
-      how = `<span class="warn">Not following the telescope: ${d.reason}. This is the recorded frame's sky.</span>`;
+      how = `<span class="warn">Not following the telescope: ${d.reason}. This is a recorded sky.</span>`;
+    } else if (d.source === "below the horizon") {
+      how = `<span class="warn">Telescope below the horizon (altitude ${d.alt.toFixed(2)}°): the solve fails.</span>`;
     }
-    caption.innerHTML = `<b>Capture ${capture.number}</b> · ${capture.time.replace("T", " ").replace("+00:00", " UTC")} · exposure ${capture.exposure}<br>`
-      + `${where} · ${capture.points.length} points (${hip} Hipparcos, ${capture.points.length - hip} fainter)<br>${how}`;
+    const counts = capture.exposure === undefined ? `${hip} Hipparcos stars in the field`
+      : `${capture.points.length} points (${hip} Hipparcos, ${capture.points.length - hip} fainter)`;
+    caption.innerHTML = `<b>${title} ${capture.number}</b> · ${capture.time.replace("T", " ").replace("+00:00", " UTC")}`
+      + `${capture.exposure === undefined ? "" : ` · exposure ${capture.exposure}`}<br>${where} · ${counts}<br>${how}`;
     const save = document.createElement("button");
     save.type = "button";
     save.textContent = "Save as JPG";
     save.addEventListener("click", () => canvas.toBlob((blob) => {
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `starsense-capture-${capture.number}.jpg`;
+      link.download = `${filename}-${capture.number}.jpg`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     }, "image/jpeg", 0.92));
@@ -1733,7 +1759,7 @@ function renderCaptures(captures) {
     grid.append(card);
   }
 }
-function drawCapture(canvas, capture) {
+function drawCapture(canvas, capture, title) {
   const ctx = canvas.getContext("2d");
   const { width, height } = canvas;
   ctx.fillStyle = "#070b16";  // fixed colours, so a saved JPG looks the same in any theme
@@ -1764,8 +1790,8 @@ function drawCapture(canvas, capture) {
   }
   ctx.textAlign = "left";
   ctx.fillStyle = "#9aa4bd";
-  ctx.fillText(capture.sky ? `Capture ${capture.number} · RA ${formatRa(capture.sky.ra)} Dec ${formatDec(capture.sky.dec)} · Hipparcos`
-    : `Capture ${capture.number}`, 16, height - 16);
+  ctx.fillText(capture.sky ? `${title} ${capture.number} · RA ${formatRa(capture.sky.ra)} Dec ${formatDec(capture.sky.dec)} · Hipparcos`
+    : `${title} ${capture.number}`, 16, height - 16);
 }
 
 // --- traffic log ------------------------------------------------------------

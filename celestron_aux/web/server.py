@@ -202,6 +202,8 @@ def _make_handler(server: WebServer) -> type:
                 self._ports()
             elif url.path == "/api/mount_emulator/status":
                 self._send_json(HTTPStatus.OK, server.api.mount_status())
+            elif url.path == "/api/starsense/v2/solves":
+                self._send_json(HTTPStatus.OK, server.api.starsense_v2_solves())
             elif url.path == "/api/starsense/v1/captures":
                 self._send_json(HTTPStatus.OK, server.api.starsense_v1_captures())
             elif url.path == "/api/discoveries":

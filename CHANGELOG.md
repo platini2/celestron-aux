@@ -19,6 +19,11 @@
   emulator answers with the capture status (a guess, not yet recorded from a
   real camera). A page switch makes it answer with a recorded real list
   instead, for comparing.
+- The page shows the emulated StarSense cameras' last four captures (V1) and
+  plate solves (V2) as Hipparcos star charts, with where the telescope pointed,
+  the place and time used, and Save as JPG; a capture that could not follow the
+  telescope says so. The emulated StarSense AutoAlign V2 uses the GPS
+  emulator's location until CPWI sends one.
 
 ## 1.2.3
 
