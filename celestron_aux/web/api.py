@@ -503,6 +503,10 @@ class WebApi:
             raise ApiError(400, f"{str(exc).strip(chr(39)).capitalize()}.") from exc
         return {"message": f"Polar axis knobs: inclination {float(body['inclination']):g}°, rotation {float(body['rotation']):g}°."}
 
+    def starsense_v1_captures(self) -> Json:
+        """The emulated StarSense (V1) camera's last captures, newest first."""
+        return {"captures": self.session.starsense_v1_captures()}
+
     def mount_status(self) -> Json:
         """Where the emulated telescope points, polled often by the page while it runs."""
         return self.session.mount_state()["status"] or {"enabled": False}

@@ -223,3 +223,38 @@ def test_the_snapshot_says_which_sky_was_photographed():
     sky = camera.emu.snapshot()["sky"]
     assert (sky["ra"], sky["dec"], sky["rotation"]) == (round(RECORDED_SKY[0], 3), round(RECORDED_SKY[1], 3),
                                                         round(RECORDED_SKY[2], 1))
+
+
+def test_the_last_four_captures_are_kept_with_where_their_sky_came_from():
+    camera = Camera()
+    count = 0
+
+    def sky():  # as the app's: it says where the sky came from
+        camera.emu.sky_details = {"source": "telescope", "alt": float(count)}
+        return RECORDED_SKY
+
+    camera.emu.sky_source = sky
+    for count in range(1, 6):
+        camera.ask(0x94, b"\x00")
+        camera.wait_reply(0x94, count)
+    kept = camera.emu.captures()
+    assert [capture["number"] for capture in kept] == [5, 4, 3, 2]
+    newest = kept[0]
+    assert newest["sky"]["ra"] == round(RECORDED_SKY[0], 4) and newest["details"]["alt"] == 5.0
+    assert len(newest["points"]) == 99
+    hipparcos = [point for point in newest["points"] if point[3]]
+    assert hipparcos[0][3] == 51233 and 50 < len(hipparcos) < 70
+
+
+def test_captures_say_when_the_camera_cannot_follow_the_telescope():
+    app = start_app()
+    try:
+        app.enable_emulation("mount")
+        app._starsense_v1_sky()
+        assert "GPS emulator" in app.starsense_v1.sky_details["reason"]
+        app.gps.enable(40.0, -3.0)
+        app._starsense_v1_sky()
+        details = app.starsense_v1.sky_details
+        assert details["source"] == "telescope" and details["location_from"] == "GPS emulator"
+    finally:
+        app.close()

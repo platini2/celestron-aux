@@ -221,6 +221,9 @@ def test_an_emulated_camera_capture_reaches_the_page(web):
     assert post(base, "/api/starsense/capture")[0] == 200
     assert wait_until(lambda: state(base)["stars"] is not None)
     assert len(state(base)["stars"]["stars"]) == 99
+    captures = json.loads(get(base, "/api/starsense/v1/captures")[1])["captures"]
+    assert len(captures) == 1 and len(captures[0]["points"]) == 99
+
 
 
 def test_the_v1_camera_can_answer_with_the_recorded_list_across_reconnects(web):

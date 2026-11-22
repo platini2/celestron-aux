@@ -360,6 +360,11 @@ class WebSession:
             if self._app is not None:
                 self._app.starsense_v1.recorded_list = enabled
 
+    def starsense_v1_captures(self) -> list:
+        with self._lock:
+            app = self._app
+        return app.starsense_v1.captures() if app is not None else []
+
     def starsense_v1_state(self) -> dict:
         with self._lock:
             app, recorded = self._app, self._starsense_v1_recorded

@@ -437,6 +437,10 @@ random), and an all-zero record when it is full.
   known (the GPS emulator's, or the one CPWI sends the StarSense AutoAlign V2).
   Otherwise it sees the sky of the recorded frame (RA 10h37m, Dec +38.6°).
   Below the horizon it finds nothing.
+- **Its last four captures** appear under the Star field: a chart of each,
+  with its Hipparcos stars labelled, where the telescope pointed, the place and
+  time used, and **Save as JPG**. A capture that could not follow the telescope
+  (no emulated telescope, or no location) says so in red.
 - **Exposure:** 0x90's value. 1000 (what CPWI and the hand controller send)
   reaches magnitude 9; every 2.5 times less reaches a magnitude brighter.
 - **Timing, as measured on a real camera:** setting the exposure takes about

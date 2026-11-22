@@ -206,13 +206,23 @@ class ScannerApp:
         """
         pointing = self.mount_emulator.sky_pointing()
         location = self.gps.position or self.starsense_v2.location
-        if pointing is None or location is None:
+        camera = self.starsense_v1
+        if pointing is None:
+            camera.sky_details = {"source": "recorded", "reason": "no emulated telescope"}
+            return RECORDED_SKY
+        if location is None:
+            camera.sky_details = {"source": "recorded",
+                                  "reason": "no location: switch on the GPS emulator so it follows the telescope"}
             return RECORDED_SKY
         alt, az, alt_az = pointing
-        if alt < 0:
-            return None
         latitude, longitude = location
         when = datetime.now(timezone.utc)
+        camera.sky_details = {"source": "telescope", "alt": round(alt, 3), "az": round(az % 360, 3),
+                              "latitude": latitude, "longitude": longitude,
+                              "location_from": "GPS emulator" if self.gps.position else "CPWI",
+                              "time": when.isoformat(timespec="seconds")}
+        if alt < 0:
+            return None
         ra, dec = altaz_to_j2000(alt, az, latitude, longitude, when)
         rotation = RECORDED_SKY[2]
         if alt_az:  # the camera turns with the field on an alt-az mount

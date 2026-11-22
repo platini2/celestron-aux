@@ -189,6 +189,14 @@
   :root[data-theme="night"] .sky-empty { color: var(--muted); }
   .sky-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
   .sky-head p { margin: 0 0 10px; color: var(--muted); font-size: 0.9rem; }
+  #ss-captures h3 { margin: 18px 0 4px; font-size: 1rem; }
+  .capture-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 10px; }
+  @media (max-width: 700px) { .capture-grid { grid-template-columns: minmax(0, 1fr); } }
+  .capture-card { margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--panel); }
+  .capture-card canvas { width: 100%; height: auto; aspect-ratio: 4 / 3; display: block; border-radius: 6px; }
+  .capture-card figcaption { font-size: 0.84rem; color: var(--muted); margin: 6px 0; overflow-wrap: anywhere; }
+  .capture-card figcaption b { color: var(--ink); }
+  .capture-card .warn { color: var(--danger); }
 
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -725,6 +733,11 @@
       <canvas id="sky" width="1280" height="960" aria-label="Positions of the stars in the last StarSense star list"></canvas>
       <div id="sky-empty" class="sky-empty">Take a StarSense capture to see what the camera sees.</div>
     </div>
+    <div id="ss-captures" hidden>
+      <h3>Emulated camera: last captures</h3>
+      <p class="hint">What the emulated StarSense camera photographed for its last four captures, newest first: the Hipparcos stars it saw (white, the brightest labelled) and the fainter points it added (orange), with where the telescope pointed, the place and the time used.</p>
+      <div id="ss-capture-grid" class="capture-grid"></div>
+    </div>
   </section>
 </main>
 
@@ -860,6 +873,7 @@ function render(s) {
   const v1 = s.starsense_v1 || {};
   $("#ss-recorded").checked = Boolean(v1.recorded_list);
   const v1Status = v1.status;
+  if (v1Status) loadCaptures(v1Status.captures); else if (shownCaptures !== -1) { shownCaptures = -1; renderCaptures([]); }
   $("#ss-v1-sky").textContent = !v1Status || !v1Status.captures ? ""
     : v1Status.recorded_list && !v1Status.sky ? `Last capture: the recorded star list (${v1Status.captures} so far).`
     : !v1Status.sky ? `Last capture: below the horizon, no stars (${v1Status.captures} so far).`
@@ -1657,6 +1671,101 @@ function drawStars(item) {
   }
   $("#sky-empty").hidden = true;
   $("#sky-caption").textContent = `${item.stars.length} stars, received at ${item.t.toFixed(1)} s`;
+}
+
+// --- the emulated camera's last captures ---------------------------------------
+
+let shownCaptures = -1;
+function formatRa(degrees) {
+  const total = Math.round(((degrees % 360) + 360) % 360 / 15 * 3600);
+  const h = Math.floor(total / 3600), m = Math.floor(total / 60) % 60, sec = total % 60;
+  return `${h}h${String(m).padStart(2, "0")}m${String(sec).padStart(2, "0")}s`;
+}
+function formatDec(degrees) {
+  const total = Math.round(Math.abs(degrees) * 60);
+  return `${degrees < 0 ? "−" : "+"}${Math.floor(total / 60)}°${String(total % 60).padStart(2, "0")}′`;
+}
+async function loadCaptures(count) {
+  if (count === shownCaptures) return;
+  shownCaptures = count;
+  try {
+    const response = await fetch("/api/starsense/v1/captures", { cache: "no-store" });
+    if (!response.ok) return;
+    renderCaptures((await response.json()).captures);
+  } catch (error) { /* the next state update tries again */ shownCaptures = -1; }
+}
+function renderCaptures(captures) {
+  const grid = $("#ss-capture-grid");
+  grid.textContent = "";
+  $("#ss-captures").hidden = !captures.length;
+  for (const capture of captures) {
+    const card = document.createElement("figure");
+    card.className = "capture-card";
+    const canvas = document.createElement("canvas");
+    canvas.width = 1280; canvas.height = 960;
+    canvas.setAttribute("aria-label", `Star chart of capture ${capture.number}`);
+    drawCapture(canvas, capture);
+    const caption = document.createElement("figcaption");
+    const hip = capture.points.filter((p) => p[3]).length;
+    const where = capture.sky ? `RA ${formatRa(capture.sky.ra)}, Dec ${formatDec(capture.sky.dec)}, rotation ${capture.sky.rotation.toFixed(1)}°` : "no sky";
+    const d = capture.details || {};
+    let how = "";
+    if (d.source === "telescope") {
+      how = `Telescope at altitude ${d.alt.toFixed(2)}°, azimuth ${d.az.toFixed(2)}°; location ${d.latitude.toFixed(4)}, ${d.longitude.toFixed(4)} (${d.location_from}); ${d.time.replace("T", " ").replace("+00:00", " UTC")}.`;
+    } else if (d.source === "recorded list") {
+      how = "The recorded real star list (switch on).";
+    } else if (d.source === "recorded") {
+      how = `<span class="warn">Not following the telescope: ${d.reason}. This is the recorded frame's sky.</span>`;
+    }
+    caption.innerHTML = `<b>Capture ${capture.number}</b> · ${capture.time.replace("T", " ").replace("+00:00", " UTC")} · exposure ${capture.exposure}<br>`
+      + `${where} · ${capture.points.length} points (${hip} Hipparcos, ${capture.points.length - hip} fainter)<br>${how}`;
+    const save = document.createElement("button");
+    save.type = "button";
+    save.textContent = "Save as JPG";
+    save.addEventListener("click", () => canvas.toBlob((blob) => {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `starsense-capture-${capture.number}.jpg`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    }, "image/jpeg", 0.92));
+    card.append(canvas, caption, save);
+    grid.append(card);
+  }
+}
+function drawCapture(canvas, capture) {
+  const ctx = canvas.getContext("2d");
+  const { width, height } = canvas;
+  ctx.fillStyle = "#070b16";  // fixed colours, so a saved JPG looks the same in any theme
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "rgba(143, 195, 255, 0.12)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let x = 160; x < width; x += 160) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
+  for (let y = 160; y < height; y += 160) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
+  ctx.moveTo(width / 2 - 20, height / 2); ctx.lineTo(width / 2 + 20, height / 2);
+  ctx.moveTo(width / 2, height / 2 - 20); ctx.lineTo(width / 2, height / 2 + 20);
+  ctx.stroke();
+  const labelled = capture.points.filter((p) => p[3]).slice(0, 5);
+  for (const [x, y, mag, hip] of capture.points) {
+    const radius = hip ? Math.max(3, 13 - 1.2 * mag) : 3;
+    ctx.fillStyle = hip ? "#f4f6ff" : "#ffb347";
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.font = "26px system-ui, sans-serif";
+  ctx.fillStyle = "#cfd6e8";
+  for (const [x, y, mag, hip] of labelled) {
+    const text = `HIP ${hip}  mag ${mag.toFixed(1)}`;
+    const right = x + 18 + ctx.measureText(text).width > width;
+    ctx.textAlign = right ? "right" : "left";
+    ctx.fillText(text, right ? x - 18 : x + 18, Math.min(height - 10, Math.max(28, y + 9)));
+  }
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9aa4bd";
+  ctx.fillText(capture.sky ? `Capture ${capture.number} · RA ${formatRa(capture.sky.ra)} Dec ${formatDec(capture.sky.dec)} · Hipparcos`
+    : `Capture ${capture.number}`, 16, height - 16);
 }
 
 // --- traffic log ------------------------------------------------------------

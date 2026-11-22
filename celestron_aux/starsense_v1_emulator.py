@@ -30,7 +30,9 @@ import random
 import struct
 import threading
 import time
-from typing import Callable, List, Optional, Tuple
+from collections import deque
+from datetime import datetime, timezone
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from . import star_catalog
 from ._sample_data import SAMPLE_STAR_LIST
@@ -38,7 +40,7 @@ from .catalog import Addr
 from .bus import BusEvent
 from .device_emulators import GET_VERSION, DeviceEmulator
 from .protocol import AuxPacket, StarSenseFrame
-from .starsense import STAR_RECORD
+from .starsense import STAR_RECORD, parse_star_list
 
 ADDRESS = Addr.STARSENSE_CAMERA
 SET_CENTRE, GET_CENTRE = 0x3E, 0x3F
@@ -51,6 +53,8 @@ DEFAULT_EXPOSURE = 1000
 MAX_POINTS = 99
 EXTRA_POINTS_PER_STAR = 0.7  # the recorded frame: 41 points without a catalogue star for 58 with one
 CENTROID_NOISE = 0.3         # pixels; the recorded frame matches the catalogue to 0.6 px rms
+
+KEPT_CAPTURES = 4  # the last captures kept for the page (an alignment takes about four)
 
 SkySource = Callable[[], Optional[Tuple[float, float, float]]]  # RA, Dec, rotation; None: below the horizon
 
@@ -80,6 +84,10 @@ class StarSenseV1Emulator(DeviceEmulator):
         #: (to tell whether a client rejects the generated lists or something else).
         self.recorded_list = False
         self._last_sky: Optional[Tuple[float, float, float]] = None
+        self._kept: Deque[Dict[str, Any]] = deque(maxlen=KEPT_CAPTURES)
+        #: Set by ``sky_source``: where its sky came from (the telescope, with the pointing,
+        #: place and time used, or the recorded sky and why), kept with each capture.
+        self.sky_details: Dict[str, Any] = {}
         self._status = bytes((IDLE, 0))
         self._busy = False
         self._exposure = DEFAULT_EXPOSURE
@@ -113,28 +121,42 @@ class StarSenseV1Emulator(DeviceEmulator):
 
     def star_list(self, exposure: int = DEFAULT_EXPOSURE) -> bytes:
         """A star list payload for one exposure of the sky the camera looks at now."""
+        return self._expose(exposure)[0]
+
+    def captures(self) -> List[Dict[str, Any]]:
+        """The last captures, newest first: when, where, the exposure and every point of the
+        list (x, y, and the Hipparcos star's magnitude and number, or none for a fainter star)."""
+        with self._lock:
+            return [dict(capture) for capture in reversed(self._kept)]
+
+    def _expose(self, exposure: int) -> Tuple[bytes, List[Tuple[float, float, Optional[float], int]]]:
+        """The star list payload, and its points with the catalogue star behind each (mag, HIP; None, 0 if none)."""
         if self.recorded_list:
             self._last_sky = None
-            return SAMPLE_STAR_LIST
+            self.sky_details = {"source": "recorded list"}
+            return SAMPLE_STAR_LIST, [(star.x, star.y, None, 0) for star in parse_star_list(SAMPLE_STAR_LIST)]
+        self.sky_details = {"source": "recorded", "reason": "no sky source"}
         sky = RECORDED_SKY if self.sky_source is None else self.sky_source()
         self._last_sky = sky
         if sky is None:
-            return b""
+            return b"", []
         limit = limiting_magnitude(exposure)
         stars = [star for star in star_catalog.in_view(*sky) if star.mag <= limit]
-        points = [(star.x + self._rng.gauss(0, CENTROID_NOISE), star.y + self._rng.gauss(0, CENTROID_NOISE))
-                  for star in stars]
+        points: List[Tuple[float, float, Optional[float], int]] = [
+            (star.x + self._rng.gauss(0, CENTROID_NOISE), star.y + self._rng.gauss(0, CENTROID_NOISE), star.mag, star.hip)
+            for star in stars]
         width, height = star_catalog.SENSOR_SIZE
         # Fainter stars than the catalogue holds: none for short exposures, about three times
         # more per magnitude beyond 9.
         extra = 0
         if limit >= star_catalog.MAG_LIMIT:
             extra = round(len(stars) * EXTRA_POINTS_PER_STAR * 3 ** (limit - star_catalog.MAG_LIMIT))
-        points += [(self._rng.uniform(0, width), self._rng.uniform(0, height)) for _ in range(extra)]
-        records = [STAR_RECORD.pack(x, y) for x, y in points[:MAX_POINTS]]
+        points += [(self._rng.uniform(0, width), self._rng.uniform(0, height), None, 0) for _ in range(extra)]
+        points = points[:MAX_POINTS]
+        records = [STAR_RECORD.pack(x, y) for x, y, _, _ in points]
         if len(points) >= MAX_POINTS:
             records.append(bytes(STAR_RECORD.size))  # a full list ends with an all-zero record, counted
-        return b"".join(records)
+        return b"".join(records), points
 
     # --- requests --------------------------------------------------------------------
 
@@ -201,7 +223,16 @@ class StarSenseV1Emulator(DeviceEmulator):
 
     def _captured(self) -> bytes:
         self._captures += 1
-        self._list = self.star_list(self._exposure)
+        self._list, points = self._expose(self._exposure)
+        sky = self._last_sky
+        self._kept.append({
+            "number": self._captures, "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "exposure": self._exposure, "recorded_list": self.recorded_list, "details": dict(self.sky_details),
+            "sky": None if sky is None else {"ra": round(sky[0], 4), "dec": round(sky[1], 4),
+                                             "rotation": round(sky[2], 2)},
+            "points": [[round(x, 1), round(y, 1), None if mag is None else round(mag, 2), hip]
+                       for x, y, mag, hip in points],
+        })
         self._list_sent = False
         count = min(len(self._list) // STAR_RECORD.size, 255)
         self._status = bytes((FOUND, count)) if count else bytes((IDLE, 0))
