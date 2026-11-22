@@ -14,6 +14,8 @@ from celestron_aux.catalog import Addr, Cmd
 from celestron_aux.protocol import AuxPacket, CorruptFrame, FrameParser, StarSenseFrame
 from celestron_aux.starsense import StarSenseCapture
 
+from .fakes import wait_until as wait_for
+
 
 class SlowCamera:
     """Answers like the camera, after a delay, on another thread (as replies arrive from the bus)."""
@@ -21,15 +23,21 @@ class SlowCamera:
     def __init__(self, delays, start_reply=b"\x09\x63", silent=()):
         self.delays, self.start_reply, self.silent = delays, start_reply, set(silent)
         self.sent = []  # (time, command)
+        self.log = []  # "sent 0x90", "answered 0x90", ... in the order they happened
         self.capture = None
+
+    def _answer(self, event):
+        self.log.append(f"answered 0x{event.frame.command:02x}")
+        self.capture(event)
 
     def send(self, packet):
         self.sent.append((time.monotonic(), packet.command))
+        self.log.append(f"sent 0x{packet.command:02x}")
         if packet.command not in self.silent:
             reply = {Cmd.SS_RESET_CAPTURE: b"", Cmd.SS_START_CAPTURE: self.start_reply,
                      Cmd.SS_GET_CAPTURE_DATA: self.start_reply}[packet.command]
             answer = AuxPacket(Addr.STARSENSE_CAMERA, Addr.SCANNER, packet.command, reply)
-            threading.Timer(self.delays.get(packet.command, 0.0), self.capture,
+            threading.Timer(self.delays.get(packet.command, 0.0), self._answer,
                             [BusEvent(0.0, Direction.RX, answer, answer.encode())]).start()
         return True
 
@@ -43,9 +51,9 @@ def capture_with(camera, **kwargs):
 def test_each_request_waits_for_the_answer_before():
     camera = SlowCamera({Cmd.SS_RESET_CAPTURE: 0.3, Cmd.SS_START_CAPTURE: 0.6})
     assert capture_with(camera).run() == 0x63
-    (t0, c0), (t1, c1), (t2, c2) = camera.sent
-    assert [c0, c1, c2] == [Cmd.SS_RESET_CAPTURE, Cmd.SS_START_CAPTURE, Cmd.SS_GET_CAPTURE_DATA]
-    assert t1 - t0 >= 0.3 and t2 - t1 >= 0.6  # never asks while the camera is still busy
+    # Never asks while the camera is still busy: each request follows the answer before it.
+    assert wait_for(lambda: len(camera.log) == 6)
+    assert camera.log == ["sent 0x90", "answered 0x90", "sent 0x94", "answered 0x94", "sent 0x92", "answered 0x92"]
 
 
 def test_the_exposure_is_sent_as_cpwi_does():
