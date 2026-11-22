@@ -304,7 +304,7 @@ _DEVICE_COMMANDS: Dict[int, Dict[int, str]] = {
         0x91: "SS_GET_STATUS",  # status, stars; 01 00 when idle (also after power-on) or none found, 09 NN after a capture
         0x92: "SS_GET_CAPTURE_DATA",  # answered 09 NN, then the star list as a 3C frame; repeats the last list, no new exposure
         0x94: "SS_START_CAPTURE",  # 00; answered after about 10 s with 01 00 (none found) or 09 NN (stars found)
-        0x9F: "SS_GET_IMAGE3",
+        0x9F: "SS_GET_IMAGE3",  # CPWI asks it every 8 s after the star list until answered; reply not recorded yet
         0xFE: "SS_GET_FW_VER",
     },
     0xB5: {0x10: "WIFI_SET_ENABLE", 0xFE: "WIFI_GET_FW_VER"},  # 0x10: Evolution WiFi on/off

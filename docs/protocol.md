@@ -234,7 +234,7 @@ Same commands as `0x10` AZM MC.
 | `0x91` | SS_GET_STATUS | yes | status, stars; 01 00 when idle (also after power-on) or none found, 09 NN after a capture |
 | `0x92` | SS_GET_CAPTURE_DATA | yes | answered 09 NN, then the star list as a 3C frame; repeats the last list, no new exposure |
 | `0x94` | SS_START_CAPTURE | yes | 00; answered after about 10 s with 01 00 (none found) or 09 NN (stars found) |
-| `0x9F` | SS_GET_IMAGE3 | yes |  |
+| `0x9F` | SS_GET_IMAGE3 | yes | CPWI asks it every 8 s after the star list until answered; reply not recorded yet |
 | `0xFE` | SS_GET_FW_VER | yes |  |
 
 ### `0xB5` Nexstar EVO WiFi

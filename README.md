@@ -437,6 +437,10 @@ brightest first, about 0.7 extra points per catalogue star from fainter stars
 - **Timing, as measured on a real camera:** setting the exposure takes about
   2.8 s at 1000, a capture about 10 s, and the camera answers nothing while
   either runs. Asking for the list again repeats it without a new exposure.
+- **0x9F:** CPWI asks it every 8 s after the star list until it gets an
+  answer. No real camera's answer has been recorded, so the emulator gives the
+  capture status (`09 NN`) as a guess. A recording of CPWI with a real camera
+  would settle it.
 
 ### Limits of the emulation
 

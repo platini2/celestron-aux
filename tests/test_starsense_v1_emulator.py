@@ -96,6 +96,8 @@ def test_a_capture_answers_like_a_real_camera():
     assert wait_until(lambda: len(camera.frames) == 1)
     first = camera.frames[0]
 
+    assert camera.ask(0x9F)[0].data == bytes((0x09, 100))  # a guess: what CPWI waits for after the list
+
     camera.ask(0x92)  # asked again: the same list, no new exposure
     assert wait_until(lambda: len(camera.frames) == 2)
     assert camera.frames[1] == first and camera.emu.snapshot()["captures"] == 1

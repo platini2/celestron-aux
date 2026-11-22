@@ -11,6 +11,9 @@ It answers captures as a real camera does (measured on firmware 1.02.13343):
 * 0x91 gives the status (``01 00`` after power-on); while 0x90 or 0x94 runs
   the camera answers nothing at all.
 * 0x3F gives the alignment centre, (640, 480) until 0x3E sets another.
+* 0x9F, which CPWI asks every 8 s after the star list until it is answered,
+  gets the status, like 0x94 (``09 NN``). This is a guess: no real camera's
+  answer to 0x9F has been recorded yet.
 
 The stars are the Hipparcos catalogue as seen from where the emulated mount
 points (the location comes from the GPS emulator or from CPWI), else the sky of
@@ -39,6 +42,7 @@ from .starsense import STAR_RECORD
 ADDRESS = Addr.STARSENSE_CAMERA
 SET_CENTRE, GET_CENTRE = 0x3E, 0x3F
 SET_EXPOSURE, GET_STATUS, GET_LIST, CAPTURE = 0x90, 0x91, 0x92, 0x94
+GET_IMAGE3 = 0x9F  # answered with the status: a guess, see above
 IDLE, READY, FOUND = 0x01, 0x03, 0x09
 
 RECORDED_SKY = (159.229, 38.641, 92.6)  # RA, Dec (J2000) and rotation of tests/fixtures/starsense_frame.hex
@@ -140,7 +144,7 @@ class StarSenseV1Emulator(DeviceEmulator):
         command, data = packet.command, packet.data
         if command == GET_VERSION:
             return self.versions[ADDRESS]
-        if command == GET_STATUS:
+        if command in (GET_STATUS, GET_IMAGE3):
             return self._status
         if command == GET_CENTRE:
             return struct.pack("<II", *self._centre)
