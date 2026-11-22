@@ -30,6 +30,7 @@ from .sky import altaz_to_j2000, altaz_to_radec, parallactic_angle
 from .starsense_v1_emulator import RECORDED_SKY, StarSenseV1Emulator
 from .mount_emulator import MountEmulator
 from .starsense_emulator import StarSenseEmulator
+from .star_solver import StarListSolver
 from .starsense import StarImageSaver, StarSenseCapture
 from .transport import Transport
 from .wifi_bridge import WifiBridge
@@ -102,6 +103,7 @@ class ScannerApp:
         self.discovery = discovery if discovery is not None else DiscoveryTracker()
         self.images = StarImageSaver(config.image_dir, enabled=config.save_starsense_images)
         self.starsense_capture = StarSenseCapture(self.bus.send)
+        self.star_solver = StarListSolver()  # plate-solves every star list seen, in the background
         self.wifi = WifiBridge(self.bus)
         self.gps = GpsEmulator(self._emulator_send)
         self.starsense_v2 = StarSenseEmulator(self._emulator_send)
@@ -133,7 +135,7 @@ class ScannerApp:
                          self.plate_solver,
                          self.console, self.csv_log, self.images, self.gps, self.starsense_v2,
                          self.focuser_emulator, self.dew_emulator, self.wifi_module, self.mount_emulator,
-                         self.starsense_v1, self.starsense_capture,
+                         self.starsense_v1, self.starsense_capture, self.star_solver,
                          self.wifi):
             self.bus.subscribe(listener)
         self.bus.subscribe(self.raw_recorder.on_event)

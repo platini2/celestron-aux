@@ -360,6 +360,11 @@ class WebSession:
             if self._app is not None:
                 self._app.starsense_v1.recorded_list = enabled
 
+    def star_solve(self, key: str) -> Optional[dict]:
+        with self._lock:
+            app = self._app
+        return app.star_solver.result(key) if app is not None else None
+
     def sky_view(self) -> Optional[dict]:
         with self._lock:
             app = self._app

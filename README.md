@@ -120,6 +120,13 @@ time:
 4. **Emulators**: one card per emulator. Click the title to fold it away; it
    still says how many emulators are running.
 5. **Star field**, last, and only when a StarSense AutoAlign (V1) is detected.
+   Every star list received, from a real camera or the emulated one, is
+   plate-solved on the Hipparcos catalogue in the background, with no hint of
+   where it is: the catalogue stars appear as rings over the received points,
+   the brightest named, with the solved RA/Dec, rotation, scale and fit. Points
+   with no catalogue star behind them (fainter stars) are marked orange. It uses
+   the camera's measured scale (19.4" a pixel) and takes about half a second; a
+   field with few bright stars can take several seconds.
 
 Started without a mode and target, the page offers Wi-Fi, AUX port and hand
 controller connections and lists the serial ports it finds. Because the page is

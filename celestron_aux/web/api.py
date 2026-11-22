@@ -126,6 +126,7 @@ class WebApi:
             "catalog": {"names": len(catalog.user_catalog().entries()),
                         "load_error": catalog.user_catalog().load_error},
             "stars": session.feed.latest_stars,
+            "star_solve": self._star_solve(session.feed.latest_stars),
         }
 
     def commands(self, device: int) -> Json:
@@ -504,6 +505,13 @@ class WebApi:
         except (KeyError, TypeError, ValueError) as exc:
             raise ApiError(400, f"{str(exc).strip(chr(39)).capitalize()}.") from exc
         return {"message": f"Polar axis knobs: inclination {float(body['inclination']):g}°, rotation {float(body['rotation']):g}°."}
+
+    def _star_solve(self, stars: Optional[Mapping[str, Any]]) -> Optional[Json]:
+        """The plate solve of the star list the page shows, once it has one."""
+        if not stars or "list_id" not in stars:
+            return None
+        result = self.session.star_solve(str(stars["list_id"]))
+        return None if result is None else {"list_id": stars["list_id"], **result}
 
     def sky_stars(self) -> Json:
         """The stars the page's sky sphere draws: Hipparcos to magnitude 5.5 (RA, Dec, mag, HIP), and names."""

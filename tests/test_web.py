@@ -236,6 +236,17 @@ def test_the_v1_camera_can_answer_with_the_recorded_list_across_reconnects(web):
     assert session.app.starsense_v1.recorded_list is False
 
 
+def test_received_star_lists_are_plate_solved_for_the_page(web):
+    session, base, _ = web
+    session.connect_transport(FakeMount({}), mode="wifi", scan=False)
+    assert post(base, "/api/emulate", {"device": "starsense1", "enabled": True})[0] == 200
+    assert post(base, "/api/starsense/sample")[0] == 200
+    assert wait_until(lambda: (state(base)["star_solve"] or {}).get("status") == "solved", timeout=30)
+    solve = state(base)["star_solve"]
+    assert solve["list_id"] == state(base)["stars"]["list_id"]
+    assert abs(solve["dec"] + 61.72) < 0.05 and solve["names"]["71683"] == "Alpha Centauri"  # the sample list
+
+
 def test_post_requires_the_page_header_and_unknown_routes_404(web):
     _, base, _ = web
     assert post(base, "/api/settings", {"csv": True}, headers={"Content-Type": "application/json"})[0] == 403

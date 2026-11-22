@@ -10,6 +10,11 @@
   telescope's path and an orange square at each StarSense capture or plate
   solve. They share one frame fixed to the stars, so the ray and the sky's
   arrow stay parallel. The emulated telescope records its path for them.
+- Every StarSense star list received is plate-solved on Hipparcos in the
+  background, with no hint of where it is, and the Star field shows the
+  catalogue stars over it with the solved position, rotation, scale and fit.
+  The five real camera lists solve to their known plates; 200 emulated lists
+  from random places in the sky all solve in the right place.
 
 ## 1.3.0
 

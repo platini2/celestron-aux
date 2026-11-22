@@ -952,6 +952,7 @@ function render(s) {
   renderPlateSolve(s.plate_solve, canTransmit);
   renderDevices(s.devices);
   if (s.stars && s.stars.seq !== shownStarsSeq) drawStars(s.stars);
+  renderStarSolve(s.star_solve);
 }
 
 function renderDevices(devices) {
@@ -1722,6 +1723,58 @@ function drawStars(item) {
   }
   $("#sky-empty").hidden = true;
   $("#sky-caption").textContent = `${item.stars.length} stars, received at ${item.t.toFixed(1)} s`;
+  shownSolve = "";
+  if (lastSolve && lastSolve.list_id === item.list_id) overlaySolve(lastSolve);
+}
+
+// The plate solve of the shown list, done in the background on Hipparcos: the catalogue
+// stars as rings over the received points, the brightest named.
+let lastSolve = null;
+let shownSolve = "";
+function renderStarSolve(solve) {
+  lastSolve = solve || null;
+  if (!solve || !lastStars || solve.list_id !== lastStars.list_id) return;
+  if (`${solve.list_id}:${solve.status}` === shownSolve) return;
+  if (shownSolve.startsWith(`${solve.list_id}:`)) drawStars(lastStars);  // redraw without the old overlay
+  else overlaySolve(solve);
+}
+function overlaySolve(solve) {
+  shownSolve = `${solve.list_id}:${solve.status}`;
+  const base = `${lastStars.stars.length} stars, received at ${lastStars.t.toFixed(1)} s`;
+  if (solve.status === "solving") { $("#sky-caption").textContent = `${base} · solving on Hipparcos…`; return; }
+  if (solve.status !== "solved") { $("#sky-caption").textContent = `${base} · could not be solved on Hipparcos`; return; }
+  const ctx = $("#sky").getContext("2d");
+  ctx.lineWidth = 2;
+  for (const [x, y, mag] of solve.stars) {
+    ctx.strokeStyle = "rgba(133, 183, 235, 0.85)";
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(9, 24 - 2 * mag), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#EF9F27";
+  lastStars.stars.forEach(([x, y], i) => {
+    if (solve.on_catalogue[i]) return;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.font = "26px system-ui, sans-serif";
+  ctx.fillStyle = "#cfd6e8";
+  const boxes = [];  // labels already drawn, so none is written over another
+  for (const [x, y, mag, hip] of solve.stars.slice(0, 8)) {
+    const text = `${solve.names[hip] || `HIP ${hip}`}  ${mag.toFixed(1)}`;
+    const width = ctx.measureText(text).width;
+    const right = x + 30 + width > 1280;
+    const left = right ? x - 30 - width : x + 30, base = Math.min(950, Math.max(28, y + 9));
+    const box = [left - 8, base - 26, left + width + 8, base + 8];
+    if (boxes.some((b) => box[0] < b[2] && b[0] < box[2] && box[1] < b[3] && b[1] < box[3])) continue;
+    boxes.push(box);
+    ctx.fillText(text, left, base);
+  }
+  ctx.textAlign = "left";
+  $("#sky-caption").textContent = `${base} · solved on Hipparcos: RA ${formatRa(solve.ra)}, Dec ${formatDec(solve.dec)}, `
+    + `rotation ${solve.rotation.toFixed(1)}°, ${solve.scale.toFixed(2)}″/px; ${solve.matched} of ${solve.points} points on catalogue stars `
+    + `(blue rings), ${(solve.rms).toFixed(2)} px rms; orange: fainter than the catalogue`;
 }
 
 // --- the emulated camera's last captures ---------------------------------------

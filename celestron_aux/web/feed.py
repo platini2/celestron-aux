@@ -12,6 +12,7 @@ from ..bus import BusEvent, Mark
 from ..decoding import describe_packet
 from ..discovery import is_unknown
 from ..protocol import AuxPacket, CorruptFrame, StarSenseFrame
+from ..star_solver import list_id
 from ..starsense import parse_star_list
 from ..wifi_bridge import ORIGIN_PREFIX
 
@@ -48,7 +49,8 @@ def event_to_item(event: BusEvent, seq: int) -> Item:
         )
     elif isinstance(frame, StarSenseFrame):
         stars = parse_star_list(frame.payload)
-        item.update(kind="stars", stars=[[round(s.x, 2), round(s.y, 2)] for s in stars])
+        item.update(kind="stars", stars=[[round(s.x, 2), round(s.y, 2)] for s in stars],
+                    list_id=list_id(frame.payload))
     elif isinstance(frame, CorruptFrame):
         item.update(kind="corrupt", reason=frame.reason)
     elif isinstance(frame, Mark):
