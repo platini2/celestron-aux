@@ -8,8 +8,8 @@ from pathlib import Path
 from celestron_aux import star_catalog
 from celestron_aux.app import AppConfig, ScannerApp
 from celestron_aux.bus import BusEvent, Direction
-from celestron_aux.protocol import AuxPacket, FrameParser, StarSenseFrame
-from celestron_aux.starsense import STAR_RECORD, StarSenseCapture, parse_star_list
+from celestron_aux.protocol import AuxPacket, FrameParser
+from celestron_aux.starsense import STAR_RECORD, parse_star_list
 from celestron_aux.starsense_v1_emulator import RECORDED_SKY, StarSenseV1Emulator, limiting_magnitude
 
 from .fakes import FakeMount, wait_until

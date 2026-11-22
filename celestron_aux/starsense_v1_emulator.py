@@ -171,7 +171,7 @@ class StarSenseV1Emulator(DeviceEmulator):
 
         self._later(delay, done)
 
-    def _later(self, delay: float, action: Callable[[], None]) -> None:
+    def _later(self, delay: float, action: Callable[[], object]) -> None:
         timer = threading.Timer(delay * self.time_scale, action)
         timer.daemon = True
         self._timers = [t for t in self._timers if t.is_alive()] + [timer]
