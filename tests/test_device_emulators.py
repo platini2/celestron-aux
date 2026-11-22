@@ -295,12 +295,12 @@ def test_an_emulators_version_can_be_changed_while_it_runs():
         app.close()
 
 
-def test_starsense_v1_answers_discovery_only():
-    from celestron_aux.device_emulators import StarSenseV1Emulator
+def test_starsense_v1_reports_the_version_of_a_real_camera():
+    from celestron_aux.starsense_v1_emulator import StarSenseV1Emulator
 
     emu, sent, _ = make(StarSenseV1Emulator)
-    assert decoded(0xB4, 0xFE, ask(emu, sent, 0xB4, 0xFE)) == "1.2.13343"  # the version a real camera reported
-    assert ask(emu, sent, 0xB4, 0x90, bytes.fromhex("03e800")) is None    # a capture: not emulated
+    assert decoded(0xB4, 0xFE, ask(emu, sent, 0xB4, 0xFE)) == "1.2.13343"
+    assert ask(emu, sent, 0xB4, 0x90, bytes.fromhex("03e800")) is None  # answered later, when set
 
 
 def test_starsense_v1_is_found_by_a_scan_and_labelled():

@@ -185,6 +185,12 @@ class StarSenseEmulator:
         with self._lock:
             self._enabled = False
 
+    @property
+    def location(self) -> Optional[Tuple[float, float]]:
+        """(latitude, longitude) CPWI has sent, or None."""
+        with self._lock:
+            return self._location
+
     def snapshot(self) -> dict:
         with self._lock:
             return {"enabled": self._enabled, "solves": self._solves, "calibrated": self._calibration is not None,

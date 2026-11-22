@@ -162,19 +162,6 @@ class FocuserEmulator(DeviceEmulator):
         return bytes((0, max(1, int(progress * self.CALIBRATION_STEPS))))
 
 
-# --- StarSense AutoAlign (the original camera) ----------------------------------------------
-
-class StarSenseV1Emulator(DeviceEmulator):
-    """The original StarSense AutoAlign camera at 0xb4: it answers discovery (its version), so
-    scans find it; star lists are sent with the "Send sample star list" button."""
-
-    addresses = (Addr.STARSENSE_CAMERA,)
-    versions = {Addr.STARSENSE_CAMERA: bytes.fromhex("0102341f")}  # 1.2.13343, as a real camera reported
-
-    def answer(self, address: int, command: int, data: bytes) -> Optional[bytes]:
-        return None  # only discovery is emulated
-
-
 # --- Wi-Fi module ---------------------------------------------------------------------------
 
 class WifiModuleEmulator(DeviceEmulator):

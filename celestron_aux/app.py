@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Callable, Dict, List, Optional, Protocol, Tuple
@@ -24,7 +25,9 @@ from .protocol import AuxPacket, StarSenseFrame
 from .protocol.units import format_version, parse_version
 from .registry import DeviceRegistry
 from .scanner import BusScanner
-from .device_emulators import DewHeaterEmulator, FocuserEmulator, StarSenseV1Emulator, WifiModuleEmulator
+from .device_emulators import DewHeaterEmulator, FocuserEmulator, WifiModuleEmulator
+from .sky import altaz_to_j2000, altaz_to_radec, parallactic_angle
+from .starsense_v1_emulator import RECORDED_SKY, StarSenseV1Emulator
 from .mount_emulator import MountEmulator
 from .starsense_emulator import StarSenseEmulator
 from .starsense import StarImageSaver, StarSenseCapture
@@ -106,7 +109,8 @@ class ScannerApp:
         self.dew_emulator = DewHeaterEmulator(self._emulator_send)
         self.wifi_module = WifiModuleEmulator(self._emulator_send)
         self.mount_emulator = MountEmulator(self._emulator_send)
-        self.starsense_v1 = StarSenseV1Emulator(self._emulator_send)
+        self.starsense_v1 = StarSenseV1Emulator(self._emulator_send, self._emulator_send_frame)
+        self.starsense_v1.sky_source = self._starsense_v1_sky  # photographs where the emulated mount points
         self.starsense_v2.pointing_source = self.mount_emulator.sky_pointing  # solves follow the emulated mount
         self.starsense_v2.polar_axis_source = self.mount_emulator.polar_axis  # and ASPA finds its polar axis
         self.emulators: Dict[str, Emulator] = {
@@ -185,6 +189,35 @@ class ScannerApp:
             self.wifi.deliver(packet.encode())
             return True
         return self.bus.send(packet, pace=False)  # a reply: real devices answer at once
+
+    def _emulator_send_frame(self, frame: StarSenseFrame, reply: AuxPacket) -> bool:
+        """A star list from an emulated camera goes where its reply ``reply`` went."""
+        if self.wifi.wants_virtual(reply):
+            self.bus.publish(frame, origin="emulated")
+            self.wifi.deliver(frame.encode())
+            return True
+        return self.bus.send(frame, pace=False)
+
+    def _starsense_v1_sky(self) -> Optional[Tuple[float, float, float]]:
+        """RA, Dec and rotation the emulated StarSense camera sees; None below the horizon.
+
+        It follows the emulated mount once a location is known (the GPS emulator's or
+        the one CPWI sent); otherwise it sees the sky of the recorded frame.
+        """
+        pointing = self.mount_emulator.sky_pointing()
+        location = self.gps.position or self.starsense_v2.location
+        if pointing is None or location is None:
+            return RECORDED_SKY
+        alt, az, alt_az = pointing
+        if alt < 0:
+            return None
+        latitude, longitude = location
+        when = datetime.now(timezone.utc)
+        ra, dec = altaz_to_j2000(alt, az, latitude, longitude, when)
+        rotation = RECORDED_SKY[2]
+        if alt_az:  # the camera turns with the field on an alt-az mount
+            rotation += parallactic_angle(*altaz_to_radec(alt, az, latitude, longitude, when), latitude, longitude, when)
+        return ra, dec, rotation % 360
 
     # --- Wi-Fi dongle -------------------------------------------------------------------
 

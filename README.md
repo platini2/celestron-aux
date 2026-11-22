@@ -247,7 +247,7 @@ without a telescope.
 | Telescope | the two motor controllers, AZM/RA (0x10) and ALT/Dec (0x11) of 12 mounts | web only |
 | Wi-Fi dongle | a SkyPortal Wi-Fi module (0xb3), for CPWI and SkySafari | web only |
 | StarSense AutoAlign V2 | the camera at 0xbd, with plate solves and polar alignment | `sv` |
-| StarSense AutoAlign (V1) | the original camera at 0xb4 (discovery and star lists) | `s1` |
+| StarSense AutoAlign (V1) | the original camera at 0xb4, capturing real stars from the Hipparcos catalogue | `s1` |
 | GPS | the GPS module at 0xb0 | `g` |
 | Focuser | the focus motor at 0x12 | `ef` |
 | Dew heater controller | a Smart DewHeater Controller at 0x17 (and 0xbb) | `ed` |
@@ -411,16 +411,45 @@ firewall may ask whether to allow it.
   being switched on and off, and shows the dew point and an LED that glows at
   the brightness it was given. The Dew heater box in Device control reads and
   controls a real or an emulated controller.
-- **StarSense AutoAlign (V1)** answers discovery at 0xb4, so scans and the hand
-  controller find the camera. **Send sample star list** sends a recorded star
-  list from it, and the Star field box shows it.
+- **StarSense AutoAlign (V1)** answers at 0xb4 as the original camera does,
+  so scans find it and captures work: from the hand controller, from CPWI, or
+  from the StarSense capture button. Each capture photographs the real sky
+  where the emulated telescope points (see below), and the Star field box
+  shows the list. **Send sample star list** still sends the recorded list at
+  once.
+
+#### The emulated StarSense camera's sky
+
+The V1 camera sees the stars of the Hipparcos catalogue to magnitude 9, through
+the geometry measured on a frame from a real camera: 1280 x 960 pixels of
+19.4", a 6.9° x 5.2° field. Projected that way, the catalogue lands on 58 of
+the real frame's 99 points to within a pixel, and its three brightest stars
+are the real list's first three. Like a real list, it holds up to 99 points,
+brightest first, about 0.7 extra points per catalogue star from fainter stars
+(placed at random), and an all-zero record when it is full.
+
+- **Where it looks:** where the emulated telescope points, once a location is
+  known (the GPS emulator's, or the one CPWI sends the StarSense AutoAlign V2).
+  Otherwise it sees the sky of the recorded frame (RA 10h37m, Dec +38.6°).
+  Below the horizon it finds nothing.
+- **Exposure:** 0x90's value. 1000 (what CPWI and the hand controller send)
+  reaches magnitude 9; every 2.5 times less reaches a magnitude brighter.
+- **Timing, as measured on a real camera:** setting the exposure takes about
+  2.8 s at 1000, a capture about 10 s, and the camera answers nothing while
+  either runs. Asking for the list again repeats it without a new exposure.
 
 ### Limits of the emulation
 
 The emulators follow captures of real devices and community reverse
 engineering of the AUX protocol, not Celestron documentation, and they are not
-a simulation of the sky: refraction is not modelled, and the StarSense camera
-sees the position of the emulated telescope, not stars. Where a command's
-meaning is not known, the emulator stays silent, so the command shows up in
-**Unknown traffic**. Captures of real devices are always welcome: they are how
+a full simulation of the sky: refraction is not modelled, the StarSense
+AutoAlign V2 reports the position of the emulated telescope rather than
+photographing it, and the V1 camera sees no planets, no Moon and no daylight.
+Where a command's meaning is not known, the emulator stays silent, so the
+command shows up in **Unknown traffic**. Captures of real devices are always welcome: they are how
 the emulators get closer to the real thing.
+
+The emulated StarSense camera's stars come from the Hipparcos catalogue
+(ESA 1997, *The Hipparcos and Tycho Catalogues*, ESA SP-1200), as published by
+NASA's HEASARC. `scripts/build_star_catalog.py` rebuilds the cut that ships with
+celestron-aux.

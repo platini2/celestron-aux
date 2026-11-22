@@ -212,6 +212,17 @@ def test_star_lists_reach_the_page(web):
     assert len(state(base)["stars"]["stars"]) == 99
 
 
+def test_an_emulated_camera_capture_reaches_the_page(web):
+    session, base, _ = web
+    session.connect_transport(FakeMount({}), mode="wifi", scan=False)
+    session.app.bus._inter_frame_delay = 0
+    session.app.starsense_v1.time_scale = 0.01  # a real capture takes about 13 s
+    assert post(base, "/api/emulate", {"device": "starsense1", "enabled": True})[0] == 200
+    assert post(base, "/api/starsense/capture")[0] == 200
+    assert wait_until(lambda: state(base)["stars"] is not None)
+    assert len(state(base)["stars"]["stars"]) == 99
+
+
 def test_post_requires_the_page_header_and_unknown_routes_404(web):
     _, base, _ = web
     assert post(base, "/api/settings", {"csv": True}, headers={"Content-Type": "application/json"})[0] == 403

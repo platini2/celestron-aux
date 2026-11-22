@@ -22,7 +22,7 @@ celestron-aux = "celestron_aux.cli:main"
 include = ["celestron_aux*"]
 
 [tool.setuptools.package-data]
-"celestron_aux" = ["*.lua"]
+"celestron_aux" = ["*.lua", "data/*"]
 "celestron_aux.web" = ["static/*"]
 
 [tool.pytest.ini_options]

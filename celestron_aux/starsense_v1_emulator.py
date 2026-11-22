@@ -1,0 +1,211 @@
+"""An emulated StarSense AutoAlign camera (the original, at 0xb4) that photographs a real sky.
+
+It answers captures as a real camera does (measured on firmware 1.02.13343):
+
+* 0x90 sets the exposure (``HH LL 00``) and is answered with no data after
+  about 0.8 + 2 s per 1000 units (2.8 s for 1000); the status is then ``03 00``.
+* 0x94 takes the picture and is answered after about 10 s with ``09 NN`` (NN
+  points found) or ``01 00`` (none).
+* 0x92 is answered ``09 NN`` and the star list follows as a 3C frame; asked
+  again, it repeats the same list, answered after about 5 s.
+* 0x91 gives the status (``01 00`` after power-on); while 0x90 or 0x94 runs
+  the camera answers nothing at all.
+* 0x3F gives the alignment centre, (640, 480) until 0x3E sets another.
+
+The stars are the Hipparcos catalogue as seen from where the emulated mount
+points (the location comes from the GPS emulator or from CPWI), else the sky of
+the recorded frame. Longer exposures reach fainter stars: magnitude 9 at 1000.
+As in real frames, about 0.7 extra points per catalogue star come from fainter
+stars the catalogue does not hold; they are placed at random and listed last.
+A full list holds 99 points and one all-zero record, like the recorded frame.
+"""
+
+from __future__ import annotations
+
+import math
+import random
+import struct
+import threading
+import time
+from typing import Callable, List, Optional, Tuple
+
+from . import star_catalog
+from .catalog import Addr
+from .bus import BusEvent
+from .device_emulators import GET_VERSION, DeviceEmulator
+from .protocol import AuxPacket, StarSenseFrame
+from .starsense import STAR_RECORD
+
+ADDRESS = Addr.STARSENSE_CAMERA
+SET_CENTRE, GET_CENTRE = 0x3E, 0x3F
+SET_EXPOSURE, GET_STATUS, GET_LIST, CAPTURE = 0x90, 0x91, 0x92, 0x94
+IDLE, READY, FOUND = 0x01, 0x03, 0x09
+
+RECORDED_SKY = (159.229, 38.641, 92.6)  # RA, Dec (J2000) and rotation of tests/fixtures/starsense_frame.hex
+DEFAULT_EXPOSURE = 1000
+MAX_POINTS = 99
+EXTRA_POINTS_PER_STAR = 0.7  # the recorded frame: 41 points without a catalogue star for 58 with one
+CENTROID_NOISE = 0.3         # pixels; the recorded frame matches the catalogue to 0.6 px rms
+
+SkySource = Callable[[], Optional[Tuple[float, float, float]]]  # RA, Dec, rotation; None: below the horizon
+
+
+def limiting_magnitude(exposure: int) -> float:
+    """The faintest stars an exposure records: magnitude 9 at 1000, a magnitude per 2.5x."""
+    return star_catalog.MAG_LIMIT + 2.5 * math.log10(max(exposure, 1) / DEFAULT_EXPOSURE)
+
+
+class StarSenseV1Emulator(DeviceEmulator):
+    """The original StarSense AutoAlign camera at 0xb4."""
+
+    addresses = (ADDRESS,)
+    versions = {ADDRESS: bytes.fromhex("0102341f")}  # 1.2.13343, as a real camera reported
+
+    def __init__(self, send: Callable[[AuxPacket], object],
+                 send_frame: Optional[Callable[[StarSenseFrame, AuxPacket], object]] = None,
+                 clock: Callable[[], float] = time.monotonic, rng: Optional[random.Random] = None,
+                 time_scale: float = 1.0) -> None:
+        super().__init__(send, clock)
+        self._send_frame = send_frame
+        self._rng = rng or random.Random()
+        self.time_scale = time_scale  # tests make the camera faster
+        #: Where the camera looks: (RA, Dec, rotation), None when it sees no sky. Unset: the recorded sky.
+        self.sky_source: Optional[SkySource] = None
+        self._status = bytes((IDLE, 0))
+        self._busy = False
+        self._exposure = DEFAULT_EXPOSURE
+        self._centre = (640, 480)
+        self._list: Optional[bytes] = None
+        self._list_sent = False
+        self._timers: List[threading.Timer] = []
+        self._captures = 0
+
+    # --- control -------------------------------------------------------------------
+
+    def disable(self) -> None:
+        super().disable()
+        with self._lock:
+            timers, self._timers = self._timers, []
+            self._busy = False
+            self._status, self._list, self._list_sent = bytes((IDLE, 0)), None, False
+        for timer in timers:
+            timer.cancel()
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"enabled": self._enabled, "captures": self._captures, "exposure": self._exposure,
+                    "busy": self._busy, "points": self._status[1] if self._status[0] == FOUND else 0}
+
+    # --- what the camera sees ----------------------------------------------------------
+
+    def star_list(self, exposure: int = DEFAULT_EXPOSURE) -> bytes:
+        """A star list payload for one exposure of the sky the camera looks at now."""
+        sky = RECORDED_SKY if self.sky_source is None else self.sky_source()
+        if sky is None:
+            return b""
+        limit = limiting_magnitude(exposure)
+        stars = [star for star in star_catalog.in_view(*sky) if star.mag <= limit]
+        points = [(star.x + self._rng.gauss(0, CENTROID_NOISE), star.y + self._rng.gauss(0, CENTROID_NOISE))
+                  for star in stars]
+        width, height = star_catalog.SENSOR_SIZE
+        # Fainter stars than the catalogue holds: none for short exposures, about three times
+        # more per magnitude beyond 9.
+        extra = 0
+        if limit >= star_catalog.MAG_LIMIT:
+            extra = round(len(stars) * EXTRA_POINTS_PER_STAR * 3 ** (limit - star_catalog.MAG_LIMIT))
+        points += [(self._rng.uniform(0, width), self._rng.uniform(0, height)) for _ in range(extra)]
+        records = [STAR_RECORD.pack(x, y) for x, y in points[:MAX_POINTS]]
+        if len(points) >= MAX_POINTS:
+            records.append(bytes(STAR_RECORD.size))  # a full list ends with an all-zero record, counted
+        return b"".join(records)
+
+    # --- requests --------------------------------------------------------------------
+
+    def __call__(self, event: BusEvent) -> None:
+        packet = event.frame
+        if not isinstance(packet, AuxPacket) or packet.destination != ADDRESS or packet.source == ADDRESS:
+            return
+        with self._lock:
+            if not self._enabled or self._busy:
+                return  # a real camera answers nothing while it sets the exposure or captures
+            reply = self._answer_now(packet)
+        if reply is not None:
+            self._send(AuxPacket(ADDRESS, packet.source, packet.command, reply))
+
+    def answer(self, address: int, command: int, data: bytes) -> Optional[bytes]:
+        raise NotImplementedError("requests are handled in __call__")
+
+    def _answer_now(self, packet: AuxPacket) -> Optional[bytes]:
+        """The immediate reply, or None (none, or one sent later). Called with the lock held."""
+        command, data = packet.command, packet.data
+        if command == GET_VERSION:
+            return self.versions[ADDRESS]
+        if command == GET_STATUS:
+            return self._status
+        if command == GET_CENTRE:
+            return struct.pack("<II", *self._centre)
+        if command == SET_CENTRE and len(data) >= 8:
+            self._centre = struct.unpack("<II", data[:8])  # assumed: the layout 0x3F answers with
+            return b""
+        if command == SET_EXPOSURE and len(data) >= 2:
+            exposure = struct.unpack(">H", data[:2])[0]
+            self._start(packet, 0.8 + 2.0 * exposure / 1000, lambda: self._exposure_set(exposure))
+        elif command == CAPTURE:
+            self._start(packet, self._rng.uniform(9.8, 11.9), self._captured)
+        elif command == GET_LIST:
+            self._list_requested(packet)
+        return None
+
+    def _start(self, request: AuxPacket, delay: float, finish: Callable[[], bytes]) -> None:
+        """Answer ``request`` after ``delay`` seconds, busy until then. Called with the lock held."""
+        self._busy = True
+        source, command = request.source, request.command
+
+        def done() -> None:
+            with self._lock:
+                if not self._enabled:
+                    return
+                self._busy = False
+                reply = finish()
+            self._send(AuxPacket(ADDRESS, source, command, reply))
+
+        self._later(delay, done)
+
+    def _later(self, delay: float, action: Callable[[], None]) -> None:
+        timer = threading.Timer(delay * self.time_scale, action)
+        timer.daemon = True
+        self._timers = [t for t in self._timers if t.is_alive()] + [timer]
+        timer.start()
+
+    def _exposure_set(self, exposure: int) -> bytes:
+        self._exposure = exposure
+        self._status = bytes((READY, 0))
+        return b""
+
+    def _captured(self) -> bytes:
+        self._captures += 1
+        self._list = self.star_list(self._exposure)
+        self._list_sent = False
+        count = min(len(self._list) // STAR_RECORD.size, 255)
+        self._status = bytes((FOUND, count)) if count else bytes((IDLE, 0))
+        return self._status
+
+    def _list_requested(self, request: AuxPacket) -> None:
+        star_list = self._list
+        reply = AuxPacket(ADDRESS, request.source, request.command, self._status)
+        if not star_list:
+            self._later(0.1, lambda: self._send(reply))
+            return
+        delay = 5.0 if self._list_sent else 0.1  # a repeated request takes about 5 s
+        self._list_sent = True
+
+        def send_list() -> None:
+            if self.enabled and self._send_frame is not None:
+                self._send_frame(StarSenseFrame(star_list), reply)
+
+        def answer() -> None:
+            if self.enabled:
+                self._send(reply)
+                self._later(0.4, send_list)
+
+        self._later(delay, answer)

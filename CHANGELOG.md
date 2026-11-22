@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The emulated StarSense AutoAlign (V1) camera takes real captures. Asked by
+  the hand controller, CPWI or the StarSense capture button, it photographs the
+  stars of the Hipparcos catalogue (to magnitude 9) where the emulated
+  telescope points, through the geometry of a real camera, and answers with a
+  real camera's timing: about 2.8 s to set the exposure, about 10 s to capture,
+  silent while busy, and the same list again when asked twice. The exposure
+  sets how faint it reaches. Checked against a frame from a real camera: the
+  catalogue lands on 58 of its 99 points, brightest stars first, as in the
+  real list. Without an emulated telescope and a known location it sees the
+  sky of that recorded frame.
+
 ## 1.2.3
 
 ### Fixed
