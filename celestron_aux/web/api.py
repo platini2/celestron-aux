@@ -113,6 +113,7 @@ class WebApi:
                                     **({} if app is None else app.starsense_v2.snapshot())},
             "wifi": session.wifi_state(),
             "dew": session.dew_state(),
+            "starsense_v1": session.starsense_v1_state(),
             "mount_emulator": {**session.mount_state(), "models": mount_table()},
             "emulation": {kind: {"enabled": (session.gps_position is not None if kind == "gps"
                                              else session.wifi_state()["enabled"] if kind == "wifi"
@@ -517,6 +518,12 @@ class WebApi:
             raise ApiError(400, f"{str(exc).capitalize()}.") from exc
         name = {"gps": "GPS", "wifi": "Wi-Fi module"}.get(kind) or EMULATIONS[kind]
         return {"message": f"The emulated {name} (0x{address:02x}) reports version {version}."}
+
+    def starsense_v1(self, body: Mapping[str, Any]) -> Json:
+        enabled = _bool(body, "recorded_list")
+        self.session.set_starsense_v1_recorded(enabled)
+        return {"message": "The emulated StarSense (V1) answers captures with the recorded real star list."
+                if enabled else "The emulated StarSense (V1) photographs the sky where the telescope points."}
 
     def starsense_emulation(self, body: Mapping[str, Any]) -> Json:
         return self.emulate({**body, "device": "starsense"})

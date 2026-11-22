@@ -707,6 +707,9 @@
         <div class="buttons">
           <button id="ss-sample" type="button" data-transmits>Send sample star list</button>
         </div>
+        <label class="switch"><input id="ss-recorded" type="checkbox">
+          <span>Answer captures with the recorded star list<small>Sends the list recorded from a real camera, unchanged, instead of the stars where the telescope points. For finding out whether an app rejects the generated lists or something else.</small></span></label>
+        <p id="ss-v1-sky" class="hint"></p>
         <p class="hint">Sends a star list recorded from a real StarSense camera onto the bus, as this camera would. Useful for testing what the hand controller does with it. Available while this emulator is on.</p>
       </div>
     </div>
@@ -854,6 +857,13 @@ function render(s) {
   }
   const v1On = Boolean(s.emulation && s.emulation.starsense1 && s.emulation.starsense1.enabled);
   $("#ss-sample").disabled = !canTransmit || !v1On;
+  const v1 = s.starsense_v1 || {};
+  $("#ss-recorded").checked = Boolean(v1.recorded_list);
+  const v1Status = v1.status;
+  $("#ss-v1-sky").textContent = !v1Status || !v1Status.captures ? ""
+    : v1Status.recorded_list && !v1Status.sky ? `Last capture: the recorded star list (${v1Status.captures} so far).`
+    : !v1Status.sky ? `Last capture: below the horizon, no stars (${v1Status.captures} so far).`
+    : `Last capture: RA ${(v1Status.sky.ra / 15).toFixed(3)} h, Dec ${v1Status.sky.dec.toFixed(2)}°, rotation ${v1Status.sky.rotation}°, ${v1Status.points} points (${v1Status.captures} so far).`;
   renderMountEmulator(s.mount_emulator);
   const running = Object.values(s.emulation || {}).filter((e) => e.enabled).length
     + (s.mount_emulator && s.mount_emulator.enabled ? 1 : 0);
@@ -1858,6 +1868,7 @@ $("#identify").addEventListener("click", (e) => act("/api/identify", {}, e.curre
 $("#reset-clock").addEventListener("click", (e) => act("/api/clock/reset", {}, e.currentTarget));
 $("#ss-capture").addEventListener("click", (e) => act("/api/starsense/capture", {}, e.currentTarget));
 $("#ss-sample").addEventListener("click", (e) => act("/api/starsense/sample", {}, e.currentTarget));
+$("#ss-recorded").addEventListener("change", (e) => act("/api/starsense/v1", {recorded_list: e.currentTarget.checked}, e.currentTarget));
 $("#gps-enable").addEventListener("change", applyGps);
 for (const slider of dewSliders()) {
   slider.addEventListener("input", () => { showDewValue(slider); sendDew(); });

@@ -223,6 +223,16 @@ def test_an_emulated_camera_capture_reaches_the_page(web):
     assert len(state(base)["stars"]["stars"]) == 99
 
 
+def test_the_v1_camera_can_answer_with_the_recorded_list_across_reconnects(web):
+    session, base, _ = web
+    assert post(base, "/api/starsense/v1", {"recorded_list": True})[0] == 200
+    assert state(base)["starsense_v1"]["recorded_list"] is True
+    session.connect_transport(FakeMount({}), mode="wifi", scan=False)
+    assert session.app.starsense_v1.recorded_list is True
+    assert post(base, "/api/starsense/v1", {"recorded_list": False})[0] == 200
+    assert session.app.starsense_v1.recorded_list is False
+
+
 def test_post_requires_the_page_header_and_unknown_routes_404(web):
     _, base, _ = web
     assert post(base, "/api/settings", {"csv": True}, headers={"Content-Type": "application/json"})[0] == 403

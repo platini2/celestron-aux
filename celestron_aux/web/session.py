@@ -64,6 +64,7 @@ class WebSession:
         # The emulated telescope: its setup and motor firmware versions (None: the model's own).
         self._mount: Tuple[MountSetup, Optional[str], Optional[str]] = (MountSetup(), None, None)
         # What the emulated dew heater controller measures, as set on the page.
+        self._starsense_v1_recorded = False
         self._dew: Dict[str, object] = {k: (list(v) if isinstance(v, list) else v)
                                         for k, v in DewHeaterEmulator.DEFAULTS.items()}
         self._replay_file: Optional[Path] = None  # uploaded capture, deleted on disconnect
@@ -120,6 +121,7 @@ class WebSession:
             for (kind, address), version in self._versions.items():
                 app.emulated_versions(kind)[address] = version
             app.dew_emulator.set_conditions(**self._dew)  # type: ignore[arg-type]
+            app.starsense_v1.recorded_list = self._starsense_v1_recorded
             for kind in sorted(self._emulations):
                 if kind == "mount":
                     app.mount_emulator.configure(*self._mount)
@@ -350,6 +352,19 @@ class WebSession:
             self._dew.update({k: v for k, v in conditions.items() if v is not None})
             if self._app is not None:
                 self._app.dew_emulator.set_conditions(**conditions)  # type: ignore[arg-type]
+
+    def set_starsense_v1_recorded(self, enabled: bool) -> None:
+        """Let the emulated StarSense (V1) answer captures with the recorded real star list."""
+        with self._lock:
+            self._starsense_v1_recorded = enabled
+            if self._app is not None:
+                self._app.starsense_v1.recorded_list = enabled
+
+    def starsense_v1_state(self) -> dict:
+        with self._lock:
+            app, recorded = self._app, self._starsense_v1_recorded
+        status = app.starsense_v1.snapshot() if app is not None else None
+        return {"recorded_list": recorded, "status": status}
 
     def dew_state(self) -> dict:
         with self._lock:

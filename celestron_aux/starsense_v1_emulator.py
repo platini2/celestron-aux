@@ -33,6 +33,7 @@ import time
 from typing import Callable, List, Optional, Tuple
 
 from . import star_catalog
+from ._sample_data import SAMPLE_STAR_LIST
 from .catalog import Addr
 from .bus import BusEvent
 from .device_emulators import GET_VERSION, DeviceEmulator
@@ -75,6 +76,10 @@ class StarSenseV1Emulator(DeviceEmulator):
         self.time_scale = time_scale  # tests make the camera faster
         #: Where the camera looks: (RA, Dec, rotation), None when it sees no sky. Unset: the recorded sky.
         self.sky_source: Optional[SkySource] = None
+        #: Answer every capture with the star list recorded from a real camera, unchanged
+        #: (to tell whether a client rejects the generated lists or something else).
+        self.recorded_list = False
+        self._last_sky: Optional[Tuple[float, float, float]] = None
         self._status = bytes((IDLE, 0))
         self._busy = False
         self._exposure = DEFAULT_EXPOSURE
@@ -97,14 +102,22 @@ class StarSenseV1Emulator(DeviceEmulator):
 
     def snapshot(self) -> dict:
         with self._lock:
+            sky = self._last_sky
             return {"enabled": self._enabled, "captures": self._captures, "exposure": self._exposure,
-                    "busy": self._busy, "points": self._status[1] if self._status[0] == FOUND else 0}
+                    "busy": self._busy, "points": self._status[1] if self._status[0] == FOUND else 0,
+                    "recorded_list": self.recorded_list,
+                    "sky": None if sky is None else {"ra": round(sky[0], 3), "dec": round(sky[1], 3),
+                                                     "rotation": round(sky[2], 1)}}
 
     # --- what the camera sees ----------------------------------------------------------
 
     def star_list(self, exposure: int = DEFAULT_EXPOSURE) -> bytes:
         """A star list payload for one exposure of the sky the camera looks at now."""
+        if self.recorded_list:
+            self._last_sky = None
+            return SAMPLE_STAR_LIST
         sky = RECORDED_SKY if self.sky_source is None else self.sky_source()
+        self._last_sky = sky
         if sky is None:
             return b""
         limit = limiting_magnitude(exposure)

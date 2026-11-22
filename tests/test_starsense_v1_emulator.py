@@ -152,3 +152,25 @@ def test_the_camera_follows_the_emulated_mount_once_a_location_is_known():
         assert alt >= 0
     finally:
         app.close()
+
+
+def test_the_recorded_list_can_answer_captures_unchanged():
+    from celestron_aux._sample_data import SAMPLE_STAR_LIST
+
+    camera = Camera()
+    camera.emu.recorded_list = True
+    camera.ask(0x94, b"\x00")
+    assert camera.wait_reply(0x94) == bytes((0x09, len(SAMPLE_STAR_LIST) // 8))
+    camera.ask(0x92)
+    assert wait_until(lambda: len(camera.frames) == 1)
+    assert camera.frames[0].payload == SAMPLE_STAR_LIST
+    assert camera.emu.snapshot()["sky"] is None
+
+
+def test_the_snapshot_says_which_sky_was_photographed():
+    camera = Camera()
+    camera.ask(0x94, b"\x00")
+    camera.wait_reply(0x94)
+    sky = camera.emu.snapshot()["sky"]
+    assert (sky["ra"], sky["dec"], sky["rotation"]) == (round(RECORDED_SKY[0], 3), round(RECORDED_SKY[1], 3),
+                                                        round(RECORDED_SKY[2], 1))
