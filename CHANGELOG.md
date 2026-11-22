@@ -10,10 +10,15 @@
   telescope points, through the geometry of a real camera, and answers with a
   real camera's timing: about 2.8 s to set the exposure, about 10 s to capture,
   silent while busy, and the same list again when asked twice. The exposure
-  sets how faint it reaches. Checked against a frame from a real camera: the
-  catalogue lands on 58 of its 99 points, brightest stars first, as in the
-  real list. Without an emulated telescope and a known location it sees the
-  sky of that recorded frame.
+  sets how faint it reaches. Checked against five star lists from real
+  cameras, each solved on the catalogue: at each list's plate the emulator's
+  sky holds 56 to 80 of its 99 points, brightest first, with stars moved to the
+  date by their proper motion and close pairs seen as one point. Without an
+  emulated telescope and a known location it sees the sky of a recorded frame.
+  CPWI drives it through a whole capture; it then asks 0x9F, which the
+  emulator answers with the capture status (a guess, not yet recorded from a
+  real camera). A page switch makes it answer with a recorded real list
+  instead, for comparing.
 
 ## 1.2.3
 

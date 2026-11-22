@@ -11,7 +11,9 @@ https://heasarc.gsfc.nasa.gov/FTP/heasarc/dbase/tdat_files/heasarc_hipparcos.tda
 Keeps stars to V magnitude 9, moves them from the catalogue epoch (J1991.25)
 to J2000 with their proper motions, and writes them sorted by declination as
 little-endian records: RA and Dec (float32 degrees, ICRS J2000), V magnitude
-times 100 (int16) and the HIP number (uint32).
+times 100 (int16), the HIP number (uint32) and the proper motions in RA (times
+cos Dec) and Dec (int16, milliarcseconds a year), so the emulator can move
+each star to the date of a capture.
 """
 
 import gzip
@@ -22,7 +24,7 @@ from pathlib import Path
 
 MAG_LIMIT = 9.0
 YEARS = 2000.0 - 1991.25
-RECORD = struct.Struct("<ffhI")
+RECORD = struct.Struct("<ffhIhh")
 OUT = Path(__file__).resolve().parent.parent / "celestron_aux" / "data" / "hipparcos.bin.gz"
 # Columns of the HEASARC table (its line[1] header).
 RA, DEC, HIP, VMAG, PM_RA, PM_DEC = 1, 2, 5, 7, 14, 15
@@ -46,7 +48,8 @@ def main(source: str) -> None:
             pm_dec = float(f[PM_DEC] or 0) / 3.6e6 * YEARS
             cos_dec = math.cos(math.radians(dec))
             ra = (ra + (pm_ra / cos_dec if cos_dec > 1e-9 else 0.0)) % 360
-            stars.append((ra, dec + pm_dec, round(mag * 100), int(f[HIP])))
+            stars.append((ra, dec + pm_dec, round(mag * 100), int(f[HIP]),
+                          round(float(f[PM_RA] or 0)), round(float(f[PM_DEC] or 0))))
     stars.sort(key=lambda star: star[1])
     data = b"".join(RECORD.pack(*star) for star in stars)
     OUT.parent.mkdir(parents=True, exist_ok=True)

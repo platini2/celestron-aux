@@ -1,6 +1,9 @@
 """The emulated StarSense AutoAlign (V1) camera: a real sky, answered with a real camera's timing."""
 
 import io
+
+import pytest
+import math
 import random
 import struct
 from pathlib import Path
@@ -51,12 +54,58 @@ def test_the_catalogue_reproduces_a_real_frame():
     # The recorded frame from a real camera, solved by the reporter of these measurements:
     # its brightest points are the catalogue's, in the same order, to the pixel.
     real = recorded_points()
-    seen = star_catalog.in_view(*RECORDED_SKY)
+    seen = star_catalog.in_view(*RECORDED_SKY, year=2025.0)
     assert len(seen) == 63  # Hipparcos stars to magnitude 9 in the field, as the solver found
     assert matched(real, seen) >= 57
     for got, want in zip(seen[:3], real[:3]):
         assert abs(got.x - want.x) < 1.5 and abs(got.y - want.y) < 1.5
     assert [star.hip for star in seen[:2]] == [51233, 51658]
+
+
+REAL_LISTS = Path(__file__).parent / "fixtures" / "starsense_real_lists.txt"
+# Real points within 2 px of the catalogue as the camera sees it, per list (0.5 px rms or so).
+EXPECTED_MATCHES = {"recorded-frame": 58, "sample-alpha-centauri": 64, "near-alpha-centauri": 56,
+                    "lepus": 57, "cassiopeia": 80}
+
+
+def real_lists():
+    for line in REAL_LISTS.read_text().splitlines():
+        if line and not line.startswith("#"):
+            name, ra, dec, rotation, payload = line.split()
+            yield name, (float(ra), float(dec), float(rotation)), bytes.fromhex(payload)
+
+
+@pytest.mark.parametrize("name,sky,payload", list(real_lists()), ids=lambda value: value if isinstance(value, str) else "")
+def test_five_real_skies_are_reproduced(name, sky, payload):
+    # Each list from a real camera, at the plate a blind solve on Hipparcos found for it:
+    # the emulator's sky holds its catalogue stars, and its frame has the same shape.
+    real = parse_star_list(payload)
+    seen = star_catalog.in_view(*sky, year=2025.0)
+    assert matched(real, seen, 2.0) >= EXPECTED_MATCHES[name] - 2
+    emulated = StarSenseV1Emulator(lambda packet: None, rng=random.Random(6))
+    emulated.sky_source = lambda: sky
+    frame = emulated.star_list()
+    assert len(frame) == len(payload) == 800 and frame[-8:] == payload[-8:] == bytes(8)
+
+
+def test_stars_the_camera_cannot_separate_are_one_point():
+    # Alpha Centauri A and B, about 1 px apart: one point in the real list, where they are now.
+    real = parse_star_list(dict((name, payload) for name, _, payload in real_lists())["sample-alpha-centauri"])
+    seen = star_catalog.in_view(220.686, -61.721, 344.86, year=2025.0)
+    brightest = seen[0]
+    assert brightest.mag < 0  # A and B together
+    assert not any(other is not brightest and abs(other.x - brightest.x) < 3 and abs(other.y - brightest.y) < 3
+                   for other in seen)
+    assert abs(brightest.x - real[0].x) < 1 and abs(brightest.y - real[0].y) < 1
+
+
+def test_stars_move_with_their_proper_motion():
+    alpha_cen = next(star for star in star_catalog.stars() if star.hip == 71683)
+    moved = alpha_cen.at(2025.0)
+    assert alpha_cen.at(2000.0) == alpha_cen
+    assert abs((moved.ra - alpha_cen.ra) * math.cos(math.radians(alpha_cen.dec)) * 3600 / 25 - alpha_cen.pm_ra / 1000) < 0.01
+    assert abs((moved.dec - alpha_cen.dec) * 3600 / 25 - alpha_cen.pm_dec / 1000) < 0.01
+    assert alpha_cen.pm_ra < -3000  # 3.6"/year west
 
 
 def test_an_emulated_frame_looks_like_the_real_one():

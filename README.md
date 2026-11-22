@@ -421,12 +421,17 @@ firewall may ask whether to allow it.
 #### The emulated StarSense camera's sky
 
 The V1 camera sees the stars of the Hipparcos catalogue to magnitude 9, through
-the geometry measured on a frame from a real camera: 1280 x 960 pixels of
-19.4", a 6.9° x 5.2° field. Projected that way, the catalogue lands on 58 of
-the real frame's 99 points to within a pixel, and its three brightest stars
-are the real list's first three. Like a real list, it holds up to 99 points,
-brightest first, about 0.7 extra points per catalogue star from fainter stars
-(placed at random), and an all-zero record when it is full.
+the geometry measured on frames from real cameras: 1280 x 960 pixels of
+19.4", a 6.9° x 5.2° field, not mirrored. Five real star lists, from skies
+near Alpha Centauri, in Lepus, Cassiopeia and Leo Minor, each solved on the
+catalogue with no hint, confirm it: at each list's plate, 56 to 80 of its 99
+points fall within 2 pixels of the catalogue stars the emulator sees, and its
+brightest points come first in both. As a real camera does, it sees each star
+where its proper motion has taken it on the day (Alpha Centauri has moved 5
+pixels since 2000), and stars closer than 3 pixels as one point (Alpha
+Centauri A and B). Like a real list, it holds up to 99 points, brightest
+first, about 0.7 extra points per catalogue star from fainter stars (placed at
+random), and an all-zero record when it is full.
 
 - **Where it looks:** where the emulated telescope points, once a location is
   known (the GPS emulator's, or the one CPWI sends the StarSense AutoAlign V2).
