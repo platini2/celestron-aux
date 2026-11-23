@@ -62,6 +62,7 @@ POST_ROUTES: Dict[str, Callable[[WebApi, Mapping[str, Any]], Json]] = {
     "/api/starsense/emulate": WebApi.starsense_emulation,
     "/api/starsense/v1": WebApi.starsense_v1,
     "/api/sky/trail/clear": WebApi.clear_sky_trail,
+    "/api/sky/reset": WebApi.reset_sky,
     "/api/emulate": WebApi.emulate,
     "/api/emulate/version": WebApi.emulated_version,
     "/api/wifi": WebApi.wifi,

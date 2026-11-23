@@ -27,6 +27,10 @@
   pier the tube is on, and the polar error of a wedge or equatorial mount.
   From the bus, the type comes from the motor's model number (equatorial) or
   from the mount fit (wedge, off level).
+- A Reset model button starts the Earth, sky and telescope views again from
+  nothing. From the bus it forgets everything seen (location, clock, motors,
+  path, plates); from the emulators it clears the path and the cameras'
+  captures and solves, and the emulators keep their location and pointing.
 - Lock markers for the time, the location and the pointing, each with where
   it comes from: green for a real device (GPS, CPWI, the motors and plates),
   orange for an emulator, blue for this computer's clock, hollow while not

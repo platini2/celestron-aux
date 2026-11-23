@@ -719,4 +719,10 @@ def test_the_spheres_can_be_built_from_the_bus(web):
     assert view["emulated"] == ["telescope", "GPS"] and view["pointing"] is None  # no plate yet to place the motors
     assert state(base)["sky_sources"]["bus"] is True
     assert post(base, "/api/sky/trail/clear", {"source": "bus"})[0] == 200
+    assert post(base, "/api/sky/reset", {"source": "bus"})[0] == 200
+    view = json.loads(get(base, "/api/sky/bus")[1])["view"]
+    assert view["site"] is None and not view["motors"] and state(base)["sky_sources"]["bus"] is False
+    assert post(base, "/api/sky/reset", {"source": "emulator"})[0] == 200
+    assert json.loads(get(base, "/api/starsense/v1/captures")[1])["captures"] == []
+    assert post(base, "/api/sky/reset", {"source": "elsewhere"})[0] == 400
     assert post(base, "/api/sky/trail/clear", {"source": "elsewhere"})[0] == 400

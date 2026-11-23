@@ -299,6 +299,10 @@ class SkyObserver:
         self._emulated = emulated     # whether the device at this address is one of the scanner's emulators
         self._wall_time = wall_time   # a bus timestamp as Unix time
         self._lock = threading.Lock()
+        self._clear()
+
+    def _clear(self) -> None:
+        """Forget everything seen: location, clock, motors, path and plates."""
         self._azm: Optional[float] = None
         self._alt: Optional[float] = None
         self._axes_time = 0.0
@@ -318,6 +322,11 @@ class SkyObserver:
         self._time_from: Optional[str] = None  # whose clock the time comes from, once one is seen
         self._gps_date: List[Optional[int]] = [None, None, None]  # year, month, day
         self._model_cache: Tuple[Optional[Tuple[Sample, ...]], Optional[MountModel]] = (None, None)
+
+    def reset(self) -> None:
+        """Start the model again from nothing, as if no traffic had been seen."""
+        with self._lock:
+            self._clear()
 
     # -- listening
 

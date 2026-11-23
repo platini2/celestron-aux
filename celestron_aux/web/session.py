@@ -394,6 +394,22 @@ class WebSession:
             return {"emulator": False, "bus": False}
         return {"emulator": app.sky_emulated(), "bus": app.sky_observer.has_data()}
 
+    def reset_sky(self, source: str = "emulator") -> None:
+        """Start the Earth, sky and telescope views again from nothing. From the bus: forget
+        everything seen (location, clock, motors, path, plates). From the emulators: forget
+        the path and the cameras' kept captures and solves; what the emulators are set to
+        (location, pointing) stays."""
+        with self._lock:
+            app = self._app
+        if app is None:
+            return
+        if source == "bus":
+            app.sky_observer.reset()
+        else:
+            app.mount_emulator.clear_trail()
+            app.starsense_v1.clear_captures()
+            app.starsense_v2.clear_solves()
+
     def clear_sky_trail(self, source: str = "emulator") -> None:
         with self._lock:
             app = self._app

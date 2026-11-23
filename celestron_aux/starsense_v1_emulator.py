@@ -123,6 +123,11 @@ class StarSenseV1Emulator(DeviceEmulator):
         """A star list payload for one exposure of the sky the camera looks at now."""
         return self._expose(exposure)[0]
 
+    def clear_captures(self) -> None:
+        """Forget the kept captures (the page's charts and the spheres' plates)."""
+        with self._lock:
+            self._kept.clear()
+
     def captures(self) -> List[Dict[str, Any]]:
         """The last captures, newest first: when, where, the exposure and every point of the
         list (x, y, and the Hipparcos star's magnitude and number, or none for a fainter star)."""

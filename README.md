@@ -518,6 +518,12 @@ the tube is on, and how far a wedge's or equatorial mount's axis is from the
 pole. From the bus, an equatorial mount is known from its motor's model
 number; a wedge or a mount off level from the mount fit.
 
+**Reset model** starts the three views again from nothing. From the bus it
+forgets everything seen (location, clock, motors, path and plates), so the
+model builds again from the next traffic; from the emulators it clears the
+path and the cameras' captures and solves, and the emulators keep their
+location and pointing. **Clear path** clears only the path.
+
 Markers under the tag show whether the **time**, the **location**, the
 **pointing** and the **mount** are locked and to what: green for a real device (a GPS, CPWI,
 the motors placed by the plates), orange for an emulator, blue for this

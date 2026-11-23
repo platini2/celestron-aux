@@ -335,6 +335,11 @@ class StarSenseEmulator:
             sent = EPOCH_2000 + timedelta(seconds=int.from_bytes(data[:4], "big"))
             self._time_offset = (sent - self._now()).total_seconds()
 
+    def clear_solves(self) -> None:
+        """Forget the kept solves (the page's charts and the spheres' plates)."""
+        with self._lock:
+            self._kept.clear()
+
     def solves(self) -> List[Dict[str, Any]]:
         """The last plate solves, newest first: when, the position reported, where it came
         from, and the Hipparcos stars at that position (x, y, mag, HIP), drawn with the

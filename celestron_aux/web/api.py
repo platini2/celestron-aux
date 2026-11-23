@@ -524,6 +524,14 @@ class WebApi:
         location, pointing, path, plates and the mount model fitted to the plates."""
         return {"view": self.session.sky_bus()}
 
+    def reset_sky(self, body: Mapping[str, Any]) -> Json:
+        source = body.get("source") or "emulator"
+        if source not in ("emulator", "bus"):
+            raise ApiError(400, "'source' must be \"emulator\" or \"bus\".")
+        self.session.reset_sky(source)
+        return {"message": "Reset the model: it builds again from the traffic on the bus." if source == "bus"
+                else "Reset the model: the path and the cameras' captures and solves are cleared."}
+
     def clear_sky_trail(self, body: Mapping[str, Any]) -> Json:
         source = body.get("source") or "emulator"
         if source not in ("emulator", "bus"):

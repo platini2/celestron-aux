@@ -248,3 +248,19 @@ def test_the_bus_view_names_the_mount_type():
         mount = feed.observer.view()["mount"]
         assert mount["type"] == expected and mount["polar_error"] < 0.1
         assert mount["type_from"] == ("motor model 0x1788" if model_number else "mount fit to the plates")
+
+
+def test_resetting_the_model_forgets_everything_seen():
+    truth = MountModel(90, 0, 140.0, 2.0, 1, 1, 0, 0)
+    feed = Feed()
+    feed.gps(*SITE)
+    feed.packet(APP, V2, 0x32, int(T0 - EPOCH_2000 + 3600).to_bytes(4, "big"))
+    feed.capture(1, truth, 10, 30)
+    assert feed.observer.view()["model"] is not None
+    feed.observer.reset()
+    view = feed.observer.view()
+    assert not feed.observer.has_data()
+    assert view["site"] is None and view["plates"] == [] and view["model"] is None and view["time_from"] is None
+    assert view["trail"] == [] and not view["motors"]
+    feed.capture(1, truth, 10, 30)  # the same star list again is a new plate after a reset
+    assert len(feed.observer.view()["plates"]) == 1

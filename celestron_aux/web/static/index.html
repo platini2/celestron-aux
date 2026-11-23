@@ -828,6 +828,7 @@
       <label class="switch inline"><input id="spheres-link" type="checkbox" checked><span>Turn together</span></label>
       <button id="spheres-reset" type="button">Reset view</button>
       <button id="spheres-clear" type="button">Clear path</button>
+      <button id="spheres-reset-model" type="button" title="Start the Earth, sky and telescope views again from nothing">Reset model</button>
     </div>
   </section>
 </main>
@@ -2476,6 +2477,16 @@ $("#spheres-reset").addEventListener("click", () => {
   SPH.view = { earth: sphereDefault(), sky: sphereDefault() };
   Object.assign(MOUNT_VIEW, { yaw: -35, pitch: 22 });
   drawSpheres();
+});
+$("#spheres-reset-model").addEventListener("click", async (e) => {
+  const bus = skySource() === "bus";
+  const what = bus ? "everything seen on the bus: location, clock, motors, path and plates. The model builds again from the next traffic."
+    : "the path and the emulated cameras' captures and solves. The emulators keep their location and pointing.";
+  if (!confirm(`Reset the model? This forgets ${what}`)) return;
+  await act("/api/sky/reset", { source: skySource() }, e.currentTarget);
+  SPH.trail = []; SPH.trailAltaz = [];
+  shownCaptures = -1; shownSolves = -1;
+  if (bus) pollBusSky(); else drawSpheres();
 });
 $("#spheres-clear").addEventListener("click", async (e) => {
   await act("/api/sky/trail/clear", { source: skySource() }, e.currentTarget);
