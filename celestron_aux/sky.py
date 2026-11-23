@@ -69,3 +69,27 @@ def parallactic_angle(ra: float, dec: float, latitude: float, longitude: float, 
     d, phi = math.radians(dec), math.radians(latitude)
     return math.degrees(math.atan2(math.sin(hour_angle),
                                    math.tan(phi) * math.cos(d) - math.sin(d) * math.cos(hour_angle)))
+
+
+def j2000_to_of_date(ra: float, dec: float, when: datetime) -> Tuple[float, float]:
+    """Apply precession: J2000 RA/Dec to RA/Dec of date (degrees)."""
+    r, d = math.radians(ra), math.radians(dec)
+    v = (math.cos(d) * math.cos(r), math.cos(d) * math.sin(r), math.sin(d))
+    p = _precession_matrix(when)
+    w = [sum(p[row][col] * v[col] for col in range(3)) for row in range(3)]
+    return math.degrees(math.atan2(w[1], w[0])) % 360, math.degrees(math.asin(max(-1.0, min(1.0, w[2]))))
+
+
+def radec_to_altaz(ra: float, dec: float, latitude: float, longitude: float, when: datetime) -> Tuple[float, float]:
+    """Altitude and azimuth (from north through east) of RA/Dec of date, in degrees."""
+    hour_angle = math.radians((gmst_degrees(when) + longitude - ra) % 360)
+    d, phi = math.radians(dec), math.radians(latitude)
+    sine_alt = math.sin(phi) * math.sin(d) + math.cos(phi) * math.cos(d) * math.cos(hour_angle)
+    alt = math.asin(max(-1.0, min(1.0, sine_alt)))
+    az = math.atan2(-math.cos(d) * math.sin(hour_angle),
+                    math.cos(phi) * math.sin(d) - math.sin(phi) * math.cos(d) * math.cos(hour_angle))
+    return math.degrees(alt), math.degrees(az) % 360
+
+
+def j2000_to_altaz(ra: float, dec: float, latitude: float, longitude: float, when: datetime) -> Tuple[float, float]:
+    return radec_to_altaz(*j2000_to_of_date(ra, dec, when), latitude, longitude, when)

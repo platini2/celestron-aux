@@ -706,3 +706,17 @@ def test_the_earth_and_sky_spheres_get_stars_land_and_where_the_telescope_points
     assert trail and abs(trail[-1][1] + 79.6) < 0.5  # where it points, as RA/Dec
     assert post(base, "/api/sky/trail/clear")[0] == 200
     assert len(json.loads(get(base, "/api/sky/trail")[1])["trail"]) <= 1
+
+
+def test_the_spheres_can_be_built_from_real_data_only(web):
+    _, base, _ = web
+    assert json.loads(get(base, "/api/sky/real")[1]) == {"view": None}  # not connected
+    assert post(base, "/api/gps", {"enabled": True, "latitude": -34.6, "longitude": -58.4})[0] == 200
+    assert post(base, "/api/mount_emulator", {"enabled": True, "initial_alt": 45, "initial_az": 180, "confirm": True})[0] == 200
+    assert state(base)["sky_sources"]["emulator"] is True
+    wait_until(lambda: state(base)["sky_view"]["pointing"] is not None)
+    view = json.loads(get(base, "/api/sky/real")[1])["view"]
+    # The emulated GPS and telescope are not real data: the real view knows nothing of them.
+    assert view["site"] is None and view["pointing"] is None and view["plates"] == [] and not view["motors"]
+    assert post(base, "/api/sky/trail/clear", {"source": "real"})[0] == 200
+    assert post(base, "/api/sky/trail/clear", {"source": "elsewhere"})[0] == 400

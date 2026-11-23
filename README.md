@@ -483,6 +483,28 @@ time, so with **Turn together** on the Earth's ray and the sky's arrow stay
 parallel. The emulated telescope records its path itself, so it is there even
 for moves made while no page was open.
 
+#### From real data
+
+The spheres also work with no emulator: on a real telescope, or replaying a
+raw capture, celestron-aux builds them from what the real devices say on the
+bus. The location comes from a GPS's answers or the one CPWI sends the camera;
+the plates from every StarSense star list (plate-solved on Hipparcos) and from
+a StarSense V2's own solves; the telescope's pointing and path from the motors'
+positions, which CPWI and the hand controller ask for all the time.
+
+The motors' positions are motor angles, not sky positions, so each plate solve
+ties them to the sky. One plate places them as a level alt-az mount; with two
+or more, either motor may turn either way; with three or more, a tilted first
+axis is fitted too (a mount off level, a wedge or an equatorial mount). The
+panel says what it fitted and how well. A replayed capture takes the real time
+from the clock CPWI or a GPS sends, so the horizon and the alt/az are those of
+the night it was recorded.
+
+A tag at the top of the panel says whether the view comes from **Emulator
+data** or **Real data**. While an emulator that puts something on the spheres
+runs (telescope, GPS, StarSense), a slider picks which one to build the view
+from. Traffic from the scanner's own emulators never counts as real data.
+
 ### Limits of the emulation
 
 The emulators follow captures of real devices and community reverse

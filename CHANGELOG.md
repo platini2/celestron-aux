@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Earth and sky from real data: with no emulator (a real telescope, or a raw
+  capture replayed), the spheres are built from what the devices on the bus
+  say. The location comes from a GPS or from CPWI; the plates come from the
+  plate-solved StarSense star lists and a StarSense V2's own solves; the
+  pointing and path come from the motors' positions, placed on the sky by a
+  mount model fitted to the plates. One plate gives a level alt-az mount,
+  three or more also fit a tilted axis (off level, wedge, equatorial). A
+  telescope past the zenith or flipped at the meridian is handled. A replay
+  takes the real time from the clock CPWI or the GPS sends.
+- A tag at the top of the Earth and sky panel says whether it shows emulator
+  or real data. While emulators run, a slider picks which.
+
 ## 1.3.1
 
 ### Added

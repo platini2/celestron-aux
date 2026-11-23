@@ -116,6 +116,7 @@ class WebApi:
             "dew": session.dew_state(),
             "starsense_v1": session.starsense_v1_state(),
             "sky_view": session.sky_view(),
+            "sky_sources": session.sky_sources(),
             "mount_emulator": {**session.mount_state(), "models": mount_table()},
             "emulation": {kind: {"enabled": (session.gps_position is not None if kind == "gps"
                                              else session.wifi_state()["enabled"] if kind == "wifi"
@@ -525,9 +526,17 @@ class WebApi:
         """The emulated telescope's path on the sky, [RA, Dec] pairs, oldest first."""
         return {"trail": self.session.sky_trail()}
 
+    def sky_real(self) -> Json:
+        """The spheres built from real traffic only (no emulator): location, pointing, path, plates
+        and the mount model fitted to the plates."""
+        return {"view": self.session.sky_real()}
+
     def clear_sky_trail(self, body: Mapping[str, Any]) -> Json:
-        self.session.clear_sky_trail()
-        return {"message": "Cleared the telescope's path."}
+        source = body.get("source") or "emulator"
+        if source not in ("emulator", "real"):
+            raise ApiError(400, "'source' must be \"emulator\" or \"real\".")
+        self.session.clear_sky_trail(source)
+        return {"message": "Cleared the telescope's path" + (" (real data)." if source == "real" else ".")}
 
     def starsense_v1_captures(self) -> Json:
         """The emulated StarSense (V1) camera's last captures, newest first."""

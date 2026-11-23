@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ from .protocol.units import format_version, parse_version
 from .registry import DeviceRegistry
 from .scanner import BusScanner
 from .device_emulators import DewHeaterEmulator, FocuserEmulator, WifiModuleEmulator
+from .sky_observer import SkyObserver
 from .sky import altaz_to_j2000, altaz_to_radec, parallactic_angle
 from .starsense_v1_emulator import RECORDED_SKY, StarSenseV1Emulator
 from .mount_emulator import MountEmulator
@@ -120,6 +122,9 @@ class ScannerApp:
             "starsense": self.starsense_v2, "focuser": self.focuser_emulator, "dew": self.dew_emulator,
             "wifi": self.wifi_module, "mount": self.mount_emulator, "starsense1": self.starsense_v1,
         }
+        # What the real devices say about the sky (location, motor positions, plates), for the spheres.
+        self.sky_observer = SkyObserver(self.star_solver, self._emulated,
+                                        lambda stamp: time.time() - self.clock.now() + stamp)
         self.scanner = BusScanner(self.bus, self.registry)
         self.motion = MountMotion(self.bus, enabled=config.motion_enabled)
         self.gps_monitor = GpsMonitor(self.bus, enabled=config.gps_polling)
@@ -135,7 +140,7 @@ class ScannerApp:
                          self.plate_solver,
                          self.console, self.csv_log, self.images, self.gps, self.starsense_v2,
                          self.focuser_emulator, self.dew_emulator, self.wifi_module, self.mount_emulator,
-                         self.starsense_v1, self.starsense_capture, self.star_solver,
+                         self.starsense_v1, self.starsense_capture, self.star_solver, self.sky_observer,
                          self.wifi):
             self.bus.subscribe(listener)
         self.bus.subscribe(self.raw_recorder.on_event)
@@ -200,6 +205,20 @@ class ScannerApp:
             self.wifi.deliver(frame.encode())
             return True
         return self.bus.send(frame, pace=False)
+
+    def _emulated(self, address: int) -> bool:
+        """Whether the device at ``address`` is one of the scanner's emulators right now."""
+        if address in (Addr.AZM_MOTOR, Addr.ALT_MOTOR):
+            return self.mount_emulator.enabled
+        if address == Addr.GPS:
+            return self.gps.enabled
+        if address == Addr.STARSENSE_CAMERA:
+            return self.starsense_v1.enabled
+        return address == Addr.STARSENSE_CAMERA_V2 and self.starsense_v2.enabled
+
+    def sky_emulated(self) -> bool:
+        """Whether an emulator that puts something on the spheres runs (telescope, GPS, StarSense)."""
+        return any(self._emulated(a) for a in (Addr.AZM_MOTOR, Addr.GPS, Addr.STARSENSE_CAMERA, Addr.STARSENSE_CAMERA_V2))
 
     def sky_view(self) -> dict:
         """For the page's Earth and sky spheres: where the scanner is (the GPS emulator's

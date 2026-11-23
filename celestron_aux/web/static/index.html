@@ -195,6 +195,19 @@
   .spheres figure { margin: 0; }
   .spheres svg { width: 100%; height: auto; display: block; touch-action: none; cursor: grab; border-radius: 8px; background: #070b16; }
   .spheres figcaption { font-size: 0.84rem; color: var(--muted); margin-top: 6px; min-height: 2.6em; }
+  .sphere-source { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; }
+  .source-tag { font-size: 0.8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+  .source-tag.emulator { color: #FAC775; background: rgba(239,159,39,0.14); border: 1px solid rgba(239,159,39,0.45); }
+  .source-tag.real { color: #9FE1CB; background: rgba(93,202,165,0.14); border: 1px solid rgba(93,202,165,0.45); }
+  .sphere-source small { color: var(--muted); font-size: 0.84rem; flex: 1; min-width: 200px; }
+  .source-slide { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 999px;
+                  background: #0b1020; border: 1px solid var(--border, #2a3247); }
+  .source-slide button { position: relative; z-index: 1; border: 0; background: none; color: var(--muted); font: inherit;
+                         font-size: 0.84rem; padding: 4px 14px; cursor: pointer; border-radius: 999px; }
+  .source-slide button[aria-checked="true"] { color: #fff; }
+  .source-slide .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px;
+                         background: #2b4f80; transition: transform 0.2s ease; }
+  .source-slide.real .thumb { transform: translateX(100%); background: #1f6b55; }
   .sphere-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.84rem; color: var(--muted); margin: 10px 0; }
   .sphere-legend i { display: inline-block; width: 16px; height: 0; margin-right: 6px; vertical-align: 3px; }
   .sphere-legend i.square { width: 9px; height: 9px; border: 2px solid #EF9F27; vertical-align: -1px; }
@@ -760,9 +773,18 @@
       <h2 id="spheres-title">Earth and sky</h2>
       <p>Drag either sphere to turn it.</p>
     </div>
+    <div class="sphere-source">
+      <span id="spheres-source-tag" class="source-tag real">Real data</span>
+      <div id="spheres-source-slide" class="source-slide" role="radiogroup" aria-label="Build the view from" hidden>
+        <span class="thumb"></span>
+        <button type="button" role="radio" data-source="emulator" aria-checked="true">Emulator</button>
+        <button type="button" role="radio" data-source="real" aria-checked="false">Real data</button>
+      </div>
+      <small id="spheres-source-note"></small>
+    </div>
     <div class="spheres">
       <figure>
-        <svg id="earth-sphere" viewBox="0 0 300 300" role="img" aria-label="The Earth, with the telescope at the emulated location and a ray along its pointing"></svg>
+        <svg id="earth-sphere" viewBox="0 0 300 300" role="img" aria-label="The Earth, with the telescope at its location and a ray along its pointing"></svg>
         <figcaption id="earth-caption"></figcaption>
       </figure>
       <figure>
@@ -927,6 +949,7 @@ function render(s) {
     : !v1Status.sky ? `Last capture: below the horizon, no stars (${v1Status.captures} so far).`
     : `Last capture: RA ${(v1Status.sky.ra / 15).toFixed(3)} h, Dec ${v1Status.sky.dec.toFixed(2)}°, rotation ${v1Status.sky.rotation}°, ${v1Status.points} points (${v1Status.captures} so far).`;
   renderMountEmulator(s.mount_emulator);
+  applySkySources(s.sky_sources);
   if (!mountPoll) updateSky(s.sky_view);  // while the telescope runs, its fast poll updates the spheres
   const running = Object.values(s.emulation || {}).filter((e) => e.enabled).length
     + (s.mount_emulator && s.mount_emulator.enabled ? 1 : 0);
@@ -1897,7 +1920,10 @@ function drawCapture(canvas, capture, title) {
 // sidereal time, so the telescope's ray from its site is parallel to the sky's arrow.
 
 const SPH = { stars: null, names: {}, land: null, loading: false, view: null, trail: [], siteKey: null, running: null,
-              sky: null, captures: [], solves: [] };
+              sky: null, captures: [], solves: [],
+              // Where the view comes from: "emulator" or "real" (the bus traffic, no emulator's data).
+              source: null, chosen: null, sources: { emulator: false, real: false }, real: null, realTimer: null,
+              emulatorView: null };
 const DEG = Math.PI / 180;
 // Facing the location, tilted so it sits a little below the centre and the telescope's ray shows.
 const sphereDefault = () => {
@@ -1958,7 +1984,11 @@ function svgArrow(parent, x1, y1, x2, y2, width) {
   svgAdd(parent, "path", { d: `M${x2 - h * Math.cos(a - 0.45)} ${y2 - h * Math.sin(a - 0.45)}L${x2} ${y2}L${x2 - h * Math.cos(a + 0.45)} ${y2 - h * Math.sin(a + 0.45)}`,
     fill: "none", stroke: "#EF9F27", "stroke-width": width, "stroke-linecap": "round", "stroke-linejoin": "round" });
 }
+function skySource() { return SPH.sources.emulator ? (SPH.chosen || "emulator") : "real"; }
 function plates() {
+  if (skySource() === "real") {
+    return (SPH.real ? SPH.real.plates : []).filter((p) => p.sky).map((p, i) => ({ ...p, label: i + 1 }));
+  }
   const kept = [...SPH.captures.map((c) => ({ ...c, kind: "V1 capture" })), ...SPH.solves.map((c) => ({ ...c, kind: "V2 solve" }))]
     .filter((c) => c.sky).sort((a, b) => a.time.localeCompare(b.time));
   return kept.map((c, i) => ({ ...c, label: i + 1 }));
@@ -1996,12 +2026,17 @@ function drawEarth() {
       svgAdd(svg, "circle", { cx: q.x, cy: q.y, r: 4, fill: "#EF9F27" });
       svgAdd(svg, "text", { x: q.x + 8, y: q.y + 14, fill: "#FAEEDA", "font-size": 12 }, "Telescope");
     } else svgAdd(svg, "text", { x: 12, y: 288, fill: "#9aa4bd", "font-size": 11 }, "Telescope on the far side");
-  } else svgAdd(svg, "text", { x: 150, y: 290, fill: "#F0997B", "font-size": 11, "text-anchor": "middle" }, "No location: switch on the GPS emulator");
+  } else svgAdd(svg, "text", { x: 150, y: 290, fill: "#F0997B", "font-size": 11, "text-anchor": "middle" },
+    skySource() === "real" ? "No location yet: a GPS, or the one CPWI sends" : "No location: switch on the GPS emulator");
   const pole = place([0, 0, 1], view, r);
   if (pole.front) svgAdd(svg, "text", { x: pole.x - 4, y: pole.y - 6, fill: "#B5D4F4", "font-size": 11 }, "N");
-  $("#earth-caption").textContent = !site ? "Where the telescope is: no location yet (GPS emulator, or the one CPWI sends)."
+  const real = skySource() === "real";
+  $("#earth-caption").textContent = !site
+    ? (real ? "Where the telescope is: no location yet (a GPS on the bus, or the one CPWI sends)."
+      : "Where the telescope is: no location yet (GPS emulator, or the one CPWI sends).")
     : `${site.lat.toFixed(4)}, ${site.lon.toFixed(4)} (${site.from})` + (sky.pointing
-      ? ` · pointing altitude ${sky.pointing.alt.toFixed(1)}°, azimuth ${sky.pointing.az.toFixed(1)}°` : " · no emulated telescope");
+      ? ` · pointing altitude ${sky.pointing.alt.toFixed(1)}°, azimuth ${sky.pointing.az.toFixed(1)}°`
+      : real ? " · pointing unknown until a plate is solved" : " · no emulated telescope");
 }
 function drawSkySphere() {
   const svg = $("#sky-sphere"), view = SPH.view.sky, r = 130, sky = SPH.sky, site = sky && sky.site;
@@ -2075,6 +2110,8 @@ async function loadSphereData() {
   drawSpheres();
 }
 function updateSky(skyView) {
+  SPH.emulatorView = skyView || null;
+  if (skySource() === "real") return;  // the real view has its own poll
   SPH.sky = skyView || null;
   const site = SPH.sky && SPH.sky.site, pointing = SPH.sky && SPH.sky.pointing;
   const key = site ? `${site.lat},${site.lon}` : "";
@@ -2091,6 +2128,67 @@ function updateSky(skyView) {
   if (!SPH.view || (site && !SPH.viewHasSite)) { SPH.view = { earth: sphereDefault(), sky: sphereDefault() }; SPH.viewHasSite = Boolean(site); }
   loadSphereData();
   drawSpheres();
+}
+function applySkySources(sources) {
+  SPH.sources = sources || { emulator: false, real: false };
+  const source = skySource();
+  if (source !== SPH.source) {
+    SPH.source = source;
+    SPH.trail = []; SPH.siteKey = null; SPH.running = null; SPH.view = null; SPH.viewHasSite = false; SPH.sky = null;
+    clearInterval(SPH.realTimer); SPH.realTimer = null;
+    if (source === "real") { pollRealSky(); SPH.realTimer = setInterval(pollRealSky, 1500); }
+    else updateSky(SPH.emulatorView);
+  }
+  // With emulators running, the panel stays up to switch back, even before any real data.
+  if (source === "real" && !SPH.sources.real && !SPH.sources.emulator) $("#spheres-panel").hidden = true;
+  renderSkySource();
+}
+async function pollRealSky() {
+  try {
+    const view = (await (await fetch("/api/sky/real", { cache: "no-store" })).json()).view;
+    if (skySource() !== "real") return;
+    SPH.real = view;
+    SPH.sky = view ? { time: view.time, site: view.site, pointing: view.pointing } : null;
+    SPH.trail = view ? view.trail : [];
+    const show = Boolean(view && (SPH.sources.real || SPH.sources.emulator));
+    $("#spheres-panel").hidden = !show;
+    renderSkySource();
+    if (!show) return;
+    const site = view.site;
+    if (!SPH.view || (site && !SPH.viewHasSite)) { SPH.view = { earth: sphereDefault(), sky: sphereDefault() }; SPH.viewHasSite = Boolean(site); }
+    loadSphereData();
+    drawSpheres();
+  } catch (error) { /* the next poll tries again */ }
+}
+function renderSkySource() {
+  const real = skySource() === "real", tag = $("#spheres-source-tag"), slide = $("#spheres-source-slide");
+  tag.className = `source-tag ${real ? "real" : "emulator"}`;
+  tag.textContent = real ? "Real data" : "Emulator data";
+  slide.hidden = !SPH.sources.emulator;
+  slide.classList.toggle("real", real);
+  for (const button of slide.querySelectorAll("button")) button.setAttribute("aria-checked", String(button.dataset.source === skySource()));
+  let note;
+  if (!real) note = "Built from the scanner's emulators: the emulated telescope, GPS and StarSense cameras.";
+  else {
+    const view = SPH.real, model = view && view.model;
+    const parts = ["From the traffic on the bus, no emulator."];
+    if (!SPH.sources.real) parts.push("Nothing seen yet: a GPS, the location CPWI sends, the motors' positions and StarSense plates fill it.");
+    else if (model) {
+      const plural = model.plates === 1 ? "" : "s";
+      parts.push(model.kind === "alt-az"
+        ? `Motors placed on the sky from ${model.plates} plate${plural}, as a level alt-az mount (${model.rms.toFixed(2)}° rms).`
+        : `Motors placed on the sky from ${model.plates} plates: first axis ${model.inclination.toFixed(1)}° up towards azimuth ${model.rotation.toFixed(1)}° (${model.rms.toFixed(2)}° rms).`);
+      if (model.plates === 1) parts.push("More plates check the mount is level and which way the motors turn.");
+    } else if (view && view.motors) parts.push(view.site ? "Motor positions seen: the first solved plate places them on the sky."
+      : "Motor positions seen: a location and a solved plate place them on the sky.");
+    const waiting = view ? view.plates.filter((p) => !p.sky).length : 0;
+    if (waiting) parts.push(`${waiting} plate${waiting === 1 ? "" : "s"} not solved${view.plates.some((p) => p.status === "solving") ? " yet" : ""}.`);
+    note = parts.join(" ");
+  }
+  $("#spheres-source-note").textContent = note;
+}
+for (const button of $("#spheres-source-slide").querySelectorAll("button")) {
+  button.addEventListener("click", () => { SPH.chosen = button.dataset.source; applySkySources(SPH.sources); });
 }
 function sphereDrag(id, key) {
   const svg = $(id);
@@ -2113,7 +2211,11 @@ function sphereDrag(id, key) {
 sphereDrag("#earth-sphere", "earth");
 sphereDrag("#sky-sphere", "sky");
 $("#spheres-reset").addEventListener("click", () => { SPH.view = { earth: sphereDefault(), sky: sphereDefault() }; drawSpheres(); });
-$("#spheres-clear").addEventListener("click", async (e) => { await act("/api/sky/trail/clear", {}, e.currentTarget); SPH.trail = []; drawSpheres(); });
+$("#spheres-clear").addEventListener("click", async (e) => {
+  await act("/api/sky/trail/clear", { source: skySource() }, e.currentTarget);
+  SPH.trail = [];
+  if (skySource() === "real") pollRealSky(); else drawSpheres();
+});
 $("#spheres-link").addEventListener("change", (e) => { if (e.target.checked && SPH.view) { SPH.view.sky = { ...SPH.view.earth }; drawSpheres(); } });
 
 // --- traffic log ------------------------------------------------------------
