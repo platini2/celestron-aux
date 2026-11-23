@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AUXBUS Scanner · Celestron AUX bus toolkit</title>
-<meta name="description" content="Scanner, monitor, emulator and Wireshark dissector for the Celestron AUX bus: discover the devices on a Celestron mount, decode their traffic and try apps such as CPWI without a telescope.">
+<title>AUXBUS Scanner · telescope AUX bus toolkit</title>
+<meta name="description" content="Scanner, monitor, emulator and Wireshark dissector for the AUX bus of Celestron telescopes: discover the devices on a mount, decode their traffic and try apps such as CPWI without a telescope.">
 <meta name="theme-color" content="#0b1020">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <meta property="og:title" content="AUXBUS Scanner">
-<meta property="og:description" content="Scanner, monitor, emulator and Wireshark dissector for the Celestron AUX bus.">
+<meta property="og:description" content="Scanner, monitor, emulator and Wireshark dissector for the telescope AUX bus.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://auxbus.patriciolatini.com/">
 </head>
@@ -38,15 +38,15 @@
   <div class="wrap hero-grid">
     <div>
       <p class="eyebrow">Open source · GPL-3.0 · Windows, macOS, Linux</p>
-      <h1>See what your Celestron mount is saying.</h1>
-      <p class="lede">AUXBUS Scanner discovers the devices on a Celestron telescope's AUX bus, decodes every packet between them, sends commands, and can emulate a whole mount, so apps such as CPWI can be tried, and their traffic studied, without a telescope.</p>
+      <h1>See what your telescope mount is saying.</h1>
+      <p class="lede">AUXBUS Scanner discovers the devices on the AUX bus of a Celestron telescope, decodes every packet between them, sends commands, and can emulate a whole mount, so apps such as CPWI can be tried, and their traffic studied, without a telescope.</p>
       <div class="cta">
         <a class="btn primary" href="https://github.com/platini2/celestron-aux/releases/latest">Download the latest release</a>
         <a class="btn" href="#install">How to install</a>
       </div>
     </div>
     <figure class="console" aria-label="Decoded traffic from a real NexStar SLT">
-      <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> celestron-aux wifi · NexStar SLT</figcaption>
+      <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> AUXBUS Scanner · Wi-Fi · NexStar SLT</figcaption>
 <pre><code><span class="s">AZM MC</span> → <span class="d">CPWI</span>         <span class="c">MTR_GET_MODEL</span>       <span class="v">0x0783 (Nexstar SLT)</span>
 <span class="s">AZM MC</span> → <span class="d">CPWI</span>         <span class="c">MTR_GET_VERSION</span>     <span class="v">5.18</span>
 <span class="s">ALT MC</span> → <span class="d">CPWI</span>         <span class="c">MTR_GET_POSITION</span>    <span class="v">-2°42'57.54"</span>
@@ -119,7 +119,7 @@
 <section id="emulators">
   <div class="wrap section">
     <h2>No telescope? Emulate one.</h2>
-    <p class="intro">Switch an emulator on and this computer answers on the bus like Celestron devices do. Everything they send is decoded and logged like real traffic, so you can try an app, or work out what it asks for, from your desk.</p>
+    <p class="intro">Switch an emulator on and this computer answers on the bus like the real devices do. Everything they send is decoded and logged like real traffic, so you can try an app, or work out what it asks for, from your desk.</p>
     <div class="two">
       <div>
         <h3>Devices</h3>

@@ -170,7 +170,7 @@ class WebServer:
 
 def _make_handler(server: WebServer) -> type:
     class Handler(BaseHTTPRequestHandler):
-        server_version = "celestron-aux"
+        server_version = "AUXBUS-Scanner"
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib signature
             log.debug("%s - %s", self.address_string(), format % args)

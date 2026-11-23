@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The web server answers with `Server: AUXBUS-Scanner`. The website's
+  screenshot, its "Not found" page and its wording use the new name.
+
 ## 1.3.3
 
 ### Added
