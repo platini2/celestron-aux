@@ -744,9 +744,6 @@
         <label class="switch"><input type="checkbox" data-emulate="starsense1">
           <span>StarSense AutoAlign (V1)<small>Answers as the original StarSense camera at 0xb4. Scans find it, and captures (from the hand controller, CPWI or the StarSense capture button) photograph the real stars where the emulated telescope points, with a real camera's timing. Its star field box appears at the bottom of the page.</small></span></label>
         <label class="field version">Firmware version (0xb4)<input type="text" data-version="starsense1:180" autocomplete="off"></label>
-        <div class="buttons">
-          <button id="ss-sample" type="button" data-transmits>Send sample star list</button>
-        </div>
         <label class="switch"><input id="ss-recorded" type="checkbox">
           <span>Answer captures with the recorded star list<small>Sends the list recorded from a real camera, unchanged, instead of the stars where the telescope points. For finding out whether an app rejects the generated lists or something else.</small></span></label>
         <p id="ss-v1-sky" class="hint"></p>
@@ -949,8 +946,6 @@ function render(s) {
   for (const box of document.querySelectorAll("[data-emulate]")) {
     box.checked = Boolean(s.emulation && s.emulation[box.dataset.emulate] && s.emulation[box.dataset.emulate].enabled);
   }
-  const v1On = Boolean(s.emulation && s.emulation.starsense1 && s.emulation.starsense1.enabled);
-  $("#ss-sample").disabled = !canTransmit || !v1On;
   const v1 = s.starsense_v1 || {};
   $("#ss-recorded").checked = Boolean(v1.recorded_list);
   const v1Status = v1.status;
@@ -2543,7 +2538,6 @@ $("#scan-all").addEventListener("click", (e) => act("/api/scan", { full: true },
 $("#identify").addEventListener("click", (e) => act("/api/identify", {}, e.currentTarget));
 $("#reset-clock").addEventListener("click", (e) => act("/api/clock/reset", {}, e.currentTarget));
 $("#ss-capture").addEventListener("click", (e) => act("/api/starsense/capture", {}, e.currentTarget));
-$("#ss-sample").addEventListener("click", (e) => act("/api/starsense/sample", {}, e.currentTarget));
 $("#ss-recorded").addEventListener("change", (e) => act("/api/starsense/v1", {recorded_list: e.currentTarget.checked}, e.currentTarget));
 $("#gps-enable").addEventListener("change", applyGps);
 for (const slider of dewSliders()) {

@@ -24,6 +24,9 @@
 
 ### Changed
 
+- The emulated StarSense (V1) no longer has a "Send sample star list" button
+  (or its `/api/starsense/sample` route): "Answer captures with the recorded
+  star list" does the same through a capture.
 - Page titles: "Star field" is now "StarSense V1 Received Star Field", and
   "Emulated camera: last captures" is "StarSense V1 / V2 Emulated Camera
   Views".

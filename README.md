@@ -430,8 +430,8 @@ firewall may ask whether to allow it.
   so scans find it and captures work: from the hand controller, from CPWI, or
   from the StarSense capture button. Each capture photographs the real sky
   where the emulated telescope points (see below), and the StarSense V1 Received Star Field box
-  shows the list. **Send sample star list** still sends the recorded list at
-  once.
+  shows the list. **Answer captures with the recorded star list** makes it
+  send the list recorded from a real camera instead.
 
 #### The emulated StarSense camera's sky
 

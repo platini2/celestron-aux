@@ -201,17 +201,6 @@ def test_starsense_capture_needs_a_detected_camera(web):
     assert post(base, "/api/starsense/capture")[0] == 200
 
 
-def test_star_lists_reach_the_page(web):
-    session, base, _ = web
-    session.connect_transport(FakeMount({}), mode="wifi", scan=False)
-    status, reply = post(base, "/api/starsense/sample")
-    assert status == 409 and "StarSense AutoAlign (V1)" in reply["error"]  # the star list comes from the V1
-    assert post(base, "/api/emulate", {"device": "starsense1", "enabled": True})[0] == 200
-    assert post(base, "/api/starsense/sample")[0] == 200
-    assert wait_until(lambda: state(base)["stars"] is not None)
-    assert len(state(base)["stars"]["stars"]) == 99
-
-
 def test_an_emulated_camera_capture_reaches_the_page(web):
     session, base, _ = web
     session.connect_transport(FakeMount({}), mode="wifi", scan=False)
@@ -239,8 +228,11 @@ def test_the_v1_camera_can_answer_with_the_recorded_list_across_reconnects(web):
 def test_received_star_lists_are_plate_solved_for_the_page(web):
     session, base, _ = web
     session.connect_transport(FakeMount({}), mode="wifi", scan=False)
+    session.app.bus._inter_frame_delay = 0
+    session.app.starsense_v1.time_scale = 0.01  # a real capture takes about 13 s
     assert post(base, "/api/emulate", {"device": "starsense1", "enabled": True})[0] == 200
-    assert post(base, "/api/starsense/sample")[0] == 200
+    assert post(base, "/api/starsense/v1", {"recorded_list": True})[0] == 200
+    assert post(base, "/api/starsense/capture")[0] == 200
     assert wait_until(lambda: (state(base)["star_solve"] or {}).get("status") == "solved", timeout=30)
     solve = state(base)["star_solve"]
     assert solve["list_id"] == state(base)["stars"]["list_id"]
@@ -315,7 +307,7 @@ def test_listen_only_refuses_transmitting_actions(web, mount):
     assert connect(base, mount)[0] == 200
     assert state(base)["settings"]["listen_only"] is True
     for path, body in (("/api/scan", {}), ("/api/identify", {}), ("/api/send", {"device": 16, "command": 254}),
-                       ("/api/starsense/capture", {}), ("/api/starsense/sample", {})):
+                       ("/api/starsense/capture", {})):
         status, reply = post(base, path, body)
         assert status == 409 and "Listen-only" in reply["error"], path
     assert session.app.devices() == []  # the scan on connect was skipped

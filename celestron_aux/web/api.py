@@ -242,14 +242,6 @@ class WebApi:
         app.start_starsense_capture()
         return {"message": "StarSense capture started. The star list arrives in about 15 seconds."}
 
-    def starsense_sample(self, body: Mapping[str, Any]) -> Json:
-        app = self._transmitting_app()
-        if not app.starsense_v1.enabled:
-            raise ApiError(409, "Switch on the StarSense AutoAlign (V1) emulator first: the star list comes from it.")
-        if not app.send_sample_star_list():
-            raise ApiError(503, "The connection to the mount is closed.")
-        return {"message": "Sent the sample star list."}
-
     def move(self, body: Mapping[str, Any]) -> Json:
         """Start or continue a held move. The page repeats this while the button is held."""
         app = self._transmitting_app()
