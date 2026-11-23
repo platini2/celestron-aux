@@ -18,6 +18,19 @@
   bus. While emulators run, a slider picks between the last two, and the
   panel lists which devices on the bus are emulated.
 
+### Changed
+
+- Page titles: "Star field" is now "StarSense V1 Received Star Field", and
+  "Emulated camera: last captures" is "StarSense V1 / V2 Emulated Camera
+  Views".
+
+### Fixed
+
+- Earth and sky: from some angles the Earth was drawn nearly all green. Land
+  reaching round the back of the globe was pushed to its edge, which could
+  fill the whole disc; it is now cut at the edge and follows it on the land's
+  side. Antarctica no longer draws lines to the pole along the date line.
+
 ## 1.3.1
 
 ### Added

@@ -749,7 +749,7 @@
 
 <section id="sky-panel" class="panel sky" aria-labelledby="sky-title" hidden>
     <div class="sky-head">
-      <h2 id="sky-title">Star field</h2>
+      <h2 id="sky-title">StarSense V1 Received Star Field</h2>
       <p id="sky-caption">No star list received yet.</p>
     </div>
     <div class="sky-frame">
@@ -757,7 +757,7 @@
       <div id="sky-empty" class="sky-empty">Take a StarSense capture to see what the camera sees.</div>
     </div>
     <div id="ss-captures" hidden>
-      <h3>Emulated camera: last captures</h3>
+      <h3>StarSense V1 / V2 Emulated Camera Views</h3>
       <p class="hint">What the emulated StarSense camera photographed for its last four captures, newest first: the Hipparcos stars it saw (white, the brightest labelled) and the fainter points it added (orange), with where the telescope pointed, the place and the time used.</p>
       <div id="ss-capture-grid" class="capture-grid"></div>
     </div>
@@ -1994,6 +1994,69 @@ function plates() {
     .filter((c) => c.sky).sort((a, b) => a.time.localeCompare(b.time));
   return kept.map((c, i) => ({ ...c, label: i + 1 }));
 }
+// The part of a land outline on the near side of the globe, as rings of (x, up) on the unit disc.
+// Where the outline goes round the back, the land follows the globe's edge, on the side the land
+// is on: outlines run anticlockwise round their land in longitude and latitude (clockwise: the
+// other way), and the view keeps that turn, so the edge is followed the same way round.
+function visibleLand(outline, view, toVector) {
+  const n = outline.length;
+  const points = outline.map(([lon, lat]) => turn(toVector(lon, lat), view));  // near side: y <= 0
+  const near = points.map((p) => p[1] <= 0);
+  if (near.every(Boolean)) return [points.map((p) => [p[0], p[2]])];
+  if (!near.some(Boolean)) return [];  // no land outline here is bigger than half the globe
+  let twice = 0;
+  for (let i = 0; i < n; i++) { const [a, b] = outline[i], [c, d] = outline[(i + 1) % n]; twice += a * d - c * b; }
+  const turnWay = twice >= 0 ? 1 : -1;
+  const edge = (p, q) => {  // where the outline crosses the globe's edge, between p and q
+    const t = p[1] / (p[1] - q[1]), x = p[0] + t * (q[0] - p[0]), z = p[2] + t * (q[2] - p[2]), d = Math.hypot(x, z) || 1;
+    return [x / d, z / d];
+  };
+  const start = near.indexOf(false), runs = [];
+  let run = null;
+  for (let k = 0; k < n; k++) {
+    const i = (start + k) % n, j = (i + 1) % n, p = points[i], q = points[j];
+    if (!near[i] && near[j]) { const e = edge(p, q); run = { pts: [e], in: Math.atan2(e[1], e[0]) }; }
+    if (near[j] && run) run.pts.push([q[0], q[2]]);
+    if (near[i] && !near[j] && run) { const e = edge(p, q); run.pts.push(e); run.out = Math.atan2(e[1], e[0]); runs.push(run); run = null; }
+  }
+  const ahead = (from, to) => ((turnWay * (to - from)) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+  const rings = [], used = new Set();
+  for (let first = 0; first < runs.length; first++) {
+    if (used.has(first)) continue;
+    const ring = [];
+    let at = first;
+    while (!used.has(at)) {
+      used.add(at);
+      ring.push(...runs[at].pts);
+      let next = first, best = Infinity;  // the next run that comes back in, going round the edge
+      for (let k = 0; k < runs.length; k++) {
+        if (used.has(k) && k !== first) continue;
+        const gap = ahead(runs[at].out, runs[k].in);
+        if (gap < best) { best = gap; next = k; }
+      }
+      for (let step = 0.08; step < best; step += 0.08) {
+        const angle = runs[at].out + turnWay * step;
+        ring.push([Math.cos(angle), Math.sin(angle)]);
+      }
+      at = next;
+    }
+    rings.push(ring);
+  }
+  return rings;
+}
+// An outline's coast, without the edges a map needs to close it (along the date line, at a pole).
+function coastlines(outline) {
+  const pieces = [];
+  let piece = [];
+  for (let i = 0; i < outline.length; i++) {
+    const [a, b] = outline[i], [c, d] = outline[(i + 1) % outline.length];
+    const made = (Math.abs(a) === 180 && Math.abs(c) === 180) || (Math.abs(b) >= 89.9 || Math.abs(d) >= 89.9);
+    piece.push(outline[i]);
+    if (made) { if (piece.length > 1) pieces.push(piece); piece = []; }
+  }
+  if (piece.length) { piece.push(outline[0]); pieces.push(piece); }
+  return pieces;
+}
 function drawEarth() {
   const svg = $("#earth-sphere"), view = SPH.view.earth, r = 105, sky = SPH.sky, site = sky && sky.site;
   svg.textContent = "";
@@ -2008,16 +2071,10 @@ function drawEarth() {
   svgAdd(svg, "circle", { cx: 150, cy: 150, r, fill: "#0C447C" });
   graticule(svg, view, r, "rgba(181,212,244,0.28)", true, geo);
   for (const outline of (SPH.land ? SPH.land.outlines : [])) {
-    const pts = outline.map(([lon, lat]) => place(geo(lon, lat), view, r));
-    if (!pts.some((q) => q.front)) continue;
-    // Points on the far side are pushed out to the globe's edge, so the visible part fills.
-    const shape = pts.map((q) => {
-      if (q.front) return q;
-      const dx = q.x - 150, dy = q.y - 150, d = Math.hypot(dx, dy) || 1;
-      return { x: 150 + dx / d * r, y: 150 + dy / d * r };
-    });
-    svgAdd(svg, "polygon", { points: shape.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" "), fill: "#3B6D11" });
-    curve(svg, outline.map(([lon, lat]) => geo(lon, lat)), view, r, true, { stroke: "#97C459", "stroke-width": 0.8 });
+    for (const ring of visibleLand(outline, view, geo)) {
+      svgAdd(svg, "polygon", { points: ring.map(([x, z]) => `${(150 + x * r).toFixed(1)},${(150 - z * r).toFixed(1)}`).join(" "), fill: "#3B6D11" });
+    }
+    for (const coast of coastlines(outline)) curve(svg, coast.map(([lon, lat]) => geo(lon, lat)), view, r, true, { stroke: "#97C459", "stroke-width": 0.8 });
   }
   svgAdd(svg, "circle", { cx: 150, cy: 150, r, fill: "none", stroke: "#85B7EB", "stroke-width": 1 });
   if (site) {

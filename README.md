@@ -119,7 +119,7 @@ time:
    only appears when its device has been detected, real or emulated.
 4. **Emulators**: one card per emulator. Click the title to fold it away; it
    still says how many emulators are running.
-5. **Star field**, last, and only when a StarSense AutoAlign (V1) is detected.
+5. **StarSense V1 Received Star Field**, last, and only when a StarSense AutoAlign (V1) is detected.
    Every star list received, from a real camera or the emulated one, is
    plate-solved on the Hipparcos catalogue in the background, with no hint of
    where it is: the catalogue stars appear as rings over the received points,
@@ -429,7 +429,7 @@ firewall may ask whether to allow it.
 - **StarSense AutoAlign (V1)** answers at 0xb4 as the original camera does,
   so scans find it and captures work: from the hand controller, from CPWI, or
   from the StarSense capture button. Each capture photographs the real sky
-  where the emulated telescope points (see below), and the Star field box
+  where the emulated telescope points (see below), and the StarSense V1 Received Star Field box
   shows the list. **Send sample star list** still sends the recorded list at
   once.
 
@@ -452,7 +452,7 @@ random), and an all-zero record when it is full.
   known (the GPS emulator's, or the one CPWI sends the StarSense AutoAlign V2).
   Otherwise it sees the sky of the recorded frame (RA 10h37m, Dec +38.6°).
   Below the horizon it finds nothing.
-- **Its last four captures** appear under the Star field: a chart of each,
+- **Its last four captures** appear under the StarSense V1 Received Star Field, in **StarSense V1 / V2 Emulated Camera Views**: a chart of each,
   with its Hipparcos stars labelled, where the telescope pointed, the place and
   time used, and **Save as JPG**. A capture that could not follow the telescope
   (no emulated telescope, or no location) says so in red.
