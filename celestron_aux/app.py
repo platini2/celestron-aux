@@ -122,7 +122,7 @@ class ScannerApp:
             "starsense": self.starsense_v2, "focuser": self.focuser_emulator, "dew": self.dew_emulator,
             "wifi": self.wifi_module, "mount": self.mount_emulator, "starsense1": self.starsense_v1,
         }
-        # What the real devices say about the sky (location, motor positions, plates), for the spheres.
+        # What the devices on the bus say about the sky (location, motor positions, plates), for the spheres.
         self.sky_observer = SkyObserver(self.star_solver, self._emulated,
                                         lambda stamp: time.time() - self.clock.now() + stamp)
         self.scanner = BusScanner(self.bus, self.registry)

@@ -375,25 +375,25 @@ class WebSession:
             app = self._app
         return app.sky_trail() if app is not None else []
 
-    def sky_real(self) -> Optional[dict]:
-        """The spheres from real traffic only: no emulator's data."""
+    def sky_bus(self) -> Optional[dict]:
+        """The spheres from the bus traffic: real devices', and the emulators' as they send it."""
         with self._lock:
             app = self._app
         return app.sky_observer.view() if app is not None else None
 
     def sky_sources(self) -> dict:
-        """What the spheres can be built from: emulators that run, and real data seen."""
+        """What the spheres can be built from: emulators that run, and data seen on the bus."""
         with self._lock:
             app = self._app
         if app is None:
-            return {"emulator": False, "real": False}
-        return {"emulator": app.sky_emulated(), "real": app.sky_observer.has_data()}
+            return {"emulator": False, "bus": False}
+        return {"emulator": app.sky_emulated(), "bus": app.sky_observer.has_data()}
 
     def clear_sky_trail(self, source: str = "emulator") -> None:
         with self._lock:
             app = self._app
         if app is not None:
-            if source == "real":
+            if source == "bus":
                 app.sky_observer.clear_path()
             else:
                 app.mount_emulator.clear_trail()

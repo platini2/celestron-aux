@@ -207,8 +207,8 @@ def _make_handler(server: WebServer) -> type:
                 self._send_json(HTTPStatus.OK, server.api.sky_stars())
             elif url.path == "/api/sky/trail":
                 self._send_json(HTTPStatus.OK, server.api.sky_trail())
-            elif url.path == "/api/sky/real":
-                self._send_json(HTTPStatus.OK, server.api.sky_real())
+            elif url.path == "/api/sky/bus":
+                self._send_json(HTTPStatus.OK, server.api.sky_bus())
             elif url.path == "/api/sky/land":
                 self._send_json(HTTPStatus.OK, server.api.sky_land())
             elif url.path == "/api/starsense/v2/solves":

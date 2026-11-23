@@ -483,11 +483,11 @@ time, so with **Turn together** on the Earth's ray and the sky's arrow stay
 parallel. The emulated telescope records its path itself, so it is there even
 for moves made while no page was open.
 
-#### From real data
+#### From the bus
 
-The spheres also work with no emulator: on a real telescope, or replaying a
-raw capture, celestron-aux builds them from what the real devices say on the
-bus. The location comes from a GPS's answers or the one CPWI sends the camera;
+The spheres can also be built from the traffic on the bus: on a real
+telescope with no emulator, or replaying a raw capture, that is real data.
+celestron-aux builds them from what the devices say on the bus. The location comes from a GPS's answers or the one CPWI sends the camera;
 the plates from every StarSense star list (plate-solved on Hipparcos) and from
 a StarSense V2's own solves; the telescope's pointing and path from the motors'
 positions, which CPWI and the hand controller ask for all the time.
@@ -500,10 +500,13 @@ panel says what it fitted and how well. A replayed capture takes the real time
 from the clock CPWI or a GPS sends, so the horizon and the alt/az are those of
 the night it was recorded.
 
-A tag at the top of the panel says whether the view comes from **Emulator
-data** or **Real data**. While an emulator that puts something on the spheres
-runs (telescope, GPS, StarSense), a slider picks which one to build the view
-from. Traffic from the scanner's own emulators never counts as real data.
+A tag at the top of the panel says where the view comes from: **Real data**
+(the bus, with no emulator in it), **Emulator** or **From the bus**. While an
+emulator that puts something on the spheres runs (telescope, GPS, StarSense),
+a slider picks between the emulators' own state and their data as it reaches
+the bus, the way CPWI sees it, so the two can be compared. The panel lists
+which devices on the bus are emulated. The motors' positions are on the bus
+only when CPWI or the hand controller asks for them.
 
 ### Limits of the emulation
 

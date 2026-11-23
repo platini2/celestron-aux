@@ -526,17 +526,17 @@ class WebApi:
         """The emulated telescope's path on the sky, [RA, Dec] pairs, oldest first."""
         return {"trail": self.session.sky_trail()}
 
-    def sky_real(self) -> Json:
-        """The spheres built from real traffic only (no emulator): location, pointing, path, plates
-        and the mount model fitted to the plates."""
-        return {"view": self.session.sky_real()}
+    def sky_bus(self) -> Json:
+        """The spheres built from the bus traffic (real devices, and emulators as they send it):
+        location, pointing, path, plates and the mount model fitted to the plates."""
+        return {"view": self.session.sky_bus()}
 
     def clear_sky_trail(self, body: Mapping[str, Any]) -> Json:
         source = body.get("source") or "emulator"
-        if source not in ("emulator", "real"):
-            raise ApiError(400, "'source' must be \"emulator\" or \"real\".")
+        if source not in ("emulator", "bus"):
+            raise ApiError(400, "'source' must be \"emulator\" or \"bus\".")
         self.session.clear_sky_trail(source)
-        return {"message": "Cleared the telescope's path" + (" (real data)." if source == "real" else ".")}
+        return {"message": "Cleared the telescope's path" + (" (from the bus)." if source == "bus" else ".")}
 
     def starsense_v1_captures(self) -> Json:
         """The emulated StarSense (V1) camera's last captures, newest first."""

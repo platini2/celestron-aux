@@ -150,13 +150,21 @@ def test_a_star_list_still_solving_is_listed_without_a_place():
     assert view["model"] is None and view["site"] is None
 
 
-def test_emulated_devices_are_not_real_data():
+def test_what_emulators_say_on_the_bus_counts_and_is_labelled():
     feed = Feed(emulated={AZM, ALT, GPS, V1, V2})
     feed.gps(*SITE)
     feed.motors(10, 30)
     feed.frame(_star_list(3))
     feed.packet(V2, APP, 0x02, bytes((1,)) + struct.pack(">ff", 1.0, -0.5))
-    assert not feed.observer.has_data()
+    view = feed.observer.view()
+    assert view["site"]["from"] == "GPS emulator" and view["motors"]
+    assert [p["emulated"] for p in view["plates"]] == [True, True]
+    assert view["emulated"] == ["telescope", "GPS", "StarSense V1", "StarSense V2"]
+    assert Feed().observer.view()["emulated"] == []
+
+
+def test_the_location_cpwi_sends_is_used_without_a_gps():
+    feed = Feed(emulated={V2})
     feed.packet(APP, V2, 0x31, struct.pack(">ff", *SITE))  # what CPWI says is real, whoever it tells
     assert feed.observer.view()["site"] == {"lat": pytest.approx(SITE[0]), "lon": pytest.approx(SITE[1]), "from": "CPWI"}
 

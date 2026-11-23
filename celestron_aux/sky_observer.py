@@ -1,7 +1,7 @@
-"""The telescope's sky as the real traffic on the bus shows it, with no emulator.
+"""The telescope's sky as the traffic on the bus shows it.
 
 Everything the page's Earth and sky spheres draw can be worked out from what
-real devices say to each other:
+the devices say to each other:
 
 * where the telescope is: a real GPS's answers, or the location CPWI sends a
   StarSense AutoAlign V2;
@@ -17,8 +17,11 @@ mount as level and alt-az; with three or more, the tilt of the first axis is
 fitted too (a mount off level, a wedge or an equatorial mount), the way the
 camera's own alignment does. From then on every position is a point on the sky.
 
-Traffic from the scanner's own emulators is left out: what an emulated device
-says is not real data. A device counts as emulated while its emulator runs.
+The scanner's own emulators talk on the bus like real devices, and what they
+say counts too: with emulators running this is the emulators' data as it
+reaches the bus, which checks the emulators the way CPWI sees them. Each piece
+is labelled with whether an emulator said it (a device counts as emulated
+while its emulator runs), so the page can tell real data from emulated.
 """
 
 from __future__ import annotations
@@ -238,6 +241,7 @@ class _Plate:
     number: int
     time: float                     # Unix time it was taken
     axes: Optional[Tuple[float, float]]  # the motors then, azm and alt degrees
+    emulated: bool = False          # taken by one of the scanner's emulators
     key: Optional[str] = None       # a V1 star list's id, solved by the star solver
     sky: Optional[Tuple[float, float]] = None  # RA, Dec (J2000), once known
 
@@ -247,8 +251,8 @@ def _iso(stamp: float) -> str:
 
 
 class SkyObserver:
-    """Bus listener that keeps what real devices say about the sky: location, motor
-    positions and plate solves. ``view()`` turns them into what the spheres draw."""
+    """Bus listener that keeps what the devices on the bus say about the sky: location,
+    motor positions and plate solves. ``view()`` turns them into what the spheres draw."""
 
     def __init__(self, solver: StarListSolver, emulated: Callable[[int], bool],
                  wall_time: Callable[[float], float]) -> None:
@@ -267,6 +271,8 @@ class SkyObserver:
         self._capture: Optional[Tuple[float, Optional[Tuple[float, float]]]] = None   # V1 capture command
         self._solve: Optional[Tuple[float, Optional[Tuple[float, float]]]] = None     # V2 solve start
         self._last_time: Optional[float] = None
+        self._motors_emulated = False   # the last motor positions came from the emulated telescope
+        self._gps_emulated = False      # the GPS location came from the GPS emulator
         # A replayed recording runs at replay time; a clock in the traffic (CPWI telling the camera
         # the time, a GPS's answers) gives the real time, as an offset to add.
         self._time_offset = 0.0
@@ -293,18 +299,19 @@ class SkyObserver:
     def _packet(self, packet: AuxPacket, stamp: float) -> None:
         source, destination, command, data = packet.source, packet.destination, packet.command, packet.data
         if source in (Addr.AZM_MOTOR, Addr.ALT_MOTOR) and command == MOTOR_GET_POSITION and len(data) == 3:
-            if self._emulated(source) or destination in (Addr.AZM_MOTOR, Addr.ALT_MOTOR):
-                return
+            if destination in (Addr.AZM_MOTOR, Addr.ALT_MOTOR):
+                return  # one motor answering the other
             degrees = int.from_bytes(data, "big") * 360.0 / STEPS
             if source == Addr.AZM_MOTOR:
                 self._azm = degrees
             else:
                 self._alt = degrees
             self._axes_time = stamp
+            self._motors_emulated = self._emulated(source)
             self._extend_path(stamp)
         elif source == Addr.GPS and command in (Cmd.GPS_GET_LAT, Cmd.GPS_GET_LONG) and len(data) >= 3:
-            if not self._emulated(Addr.GPS):
-                self._gps[command - Cmd.GPS_GET_LAT] = bam_to_degrees(data[:3])
+            self._gps[command - Cmd.GPS_GET_LAT] = bam_to_degrees(data[:3])
+            self._gps_emulated = self._emulated(Addr.GPS)
         elif destination == Addr.STARSENSE_CAMERA_V2 and command == V2_SET_GEOLOCATION and len(data) >= 8:
             # The location CPWI knows: real even when the camera it tells is emulated.
             latitude, longitude = struct.unpack(">ff", data[:8])
@@ -313,14 +320,13 @@ class SkyObserver:
         elif destination == Addr.STARSENSE_CAMERA_V2 and command == V2_SET_TIME_NOW and len(data) >= 4:
             self._clock_seen(EPOCH_2000 + int.from_bytes(data[:4], "big"), stamp)
         elif source == Addr.GPS and command in (Cmd.GPS_GET_YEAR, Cmd.GPS_GET_DATE, Cmd.GPS_GET_TIME):
-            if not self._emulated(Addr.GPS):
-                self._gps_clock(command, data, stamp)
+            self._gps_clock(command, data, stamp)
         elif destination == Addr.STARSENSE_CAMERA and command == Cmd.SS_START_CAPTURE:
             self._capture = (stamp, self._axes())
         elif destination == Addr.STARSENSE_CAMERA_V2 and command == V2_START_SOLVE and not data:
             self._solve = (stamp, self._axes())
         elif (source == Addr.STARSENSE_CAMERA_V2 and command == V2_PLATE_STATUS and len(data) >= 9
-              and data[0] == V2_SOLVED and not self._emulated(source)):
+              and data[0] == V2_SOLVED):
             self._v2_solved(data, stamp)
 
     def _clock_seen(self, real: float, stamp: float) -> None:
@@ -358,15 +364,13 @@ class SkyObserver:
         return stamp, self._axes()
 
     def _star_list(self, frame: StarSenseFrame, stamp: float) -> None:
-        if self._emulated(Addr.STARSENSE_CAMERA):
-            return
         key = list_id(frame.payload)
         if any(plate.key == key for plate in self._plates):
             return  # the camera sends the same list again when asked twice
         taken, axes = self._taken(self._capture, stamp)
         self._capture = None
         self._count += 1
-        self._plates.append(_Plate("V1 capture", self._count, taken, axes, key=key))
+        self._plates.append(_Plate("V1 capture", self._count, taken, axes, self._emulated(Addr.STARSENSE_CAMERA), key=key))
 
     def _v2_solved(self, data: bytes, stamp: float) -> None:
         ra, dec = (math.degrees(v) for v in struct.unpack(">ff", data[1:9]))
@@ -377,14 +381,14 @@ class SkyObserver:
         taken, axes = self._taken(self._solve, stamp)
         self._solve = None
         self._count += 1
-        self._plates.append(_Plate("V2 solve", self._count, taken, axes, sky=sky))
+        self._plates.append(_Plate("V2 solve", self._count, taken, axes, self._emulated(Addr.STARSENSE_CAMERA_V2), sky=sky))
 
     # -- what the page shows
 
     def location(self) -> Optional[Tuple[Tuple[float, float], str]]:
         with self._lock:
             if self._gps[0] is not None and self._gps[1] is not None:
-                return (self._gps[0], self._gps[1]), "GPS"
+                return (self._gps[0], self._gps[1]), "GPS emulator" if self._gps_emulated else "GPS"
             if self._cpwi_location is not None:
                 return self._cpwi_location, "CPWI"
             return None
@@ -422,7 +426,7 @@ class SkyObserver:
         return model
 
     def view(self, max_path: int = 3000) -> dict:
-        """Where the telescope is and points, its path and its plates, from real traffic."""
+        """Where the telescope is and points, its path and its plates, from the bus traffic."""
         found = self.location()
         with self._lock:
             plates = self._resolved()
@@ -430,6 +434,9 @@ class SkyObserver:
             axes, axes_time = self._axes(), self._axes_time
             shift = self._time_offset
             now = (self._last_time if self._last_time is not None else time.time()) + shift
+            emulated = (["telescope"] if self._motors_emulated and axes is not None else []) \
+                + (["GPS"] if self._gps_emulated and self._gps[0] is not None else []) \
+                + sorted({"StarSense " + ("V1" if p.kind == "V1 capture" else "V2") for p in plates if p.emulated})
             plate_status = {plate.key: (self._solver.result(plate.key) or {}).get("status")
                             for plate in plates if plate.key is not None}
         site = None if found is None else {"lat": found[0][0], "lon": found[0][1], "from": found[1]}
@@ -464,8 +471,10 @@ class SkyObserver:
             "trail": trail,
             "plates": [{"kind": p.kind, "number": p.number, "time": _iso(p.time + shift),
                         "sky": None if p.sky is None else {"ra": round(p.sky[0], 4), "dec": round(p.sky[1], 4)},
+                        "emulated": p.emulated,
                         "status": "solved" if p.sky is not None else ((plate_status.get(p.key) if p.key else None) or "unsolved")}
                        for p in plates],
             "model": None if model is None else model.json(),
             "motors": axes is not None,
+            "emulated": emulated,  # what in this view an emulator said
         }
