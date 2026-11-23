@@ -6,7 +6,7 @@ import urllib.request
 import pytest
 
 from celestron_aux.app import AppConfig
-from celestron_aux.cli import parse_args, web_password
+from celestron_aux.cli import PASSWORD_ENV, parse_args, web_password
 from celestron_aux.web import WebServer, WebSession
 
 HEADERS = {"Content-Type": "application/json", "X-Requested-With": "celestron-aux"}
@@ -79,9 +79,13 @@ def test_no_password_means_open(tmp_path):
 
 
 def test_password_sources(monkeypatch):
-    monkeypatch.setenv("CELESTRON_AUX_WEB_PASSWORD", "no longer read")
+    assert PASSWORD_ENV == "AUXBUS_SCANNER_WEB_PASSWORD"
+    monkeypatch.delenv(PASSWORD_ENV, raising=False)
+    monkeypatch.setenv("CELESTRON_AUX_WEB_PASSWORD", "old name, not read")
     assert web_password(parse_args(["--web"])) is None
     assert web_password(parse_args(["--web", "--web-password=abc"])) == "abc"
+    monkeypatch.setenv(PASSWORD_ENV, "from-env")
+    assert web_password(parse_args(["--web"])) == "from-env"
     assert web_password(parse_args(["--web", "--web-password", "given"])) == "given"
     answers = iter(["typed", "typed"])
     assert web_password(parse_args(["--web", "--web-password"]), ask=lambda _: next(answers)) == "typed"

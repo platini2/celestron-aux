@@ -163,14 +163,24 @@ page from other devices, add a password:
 
 ```bash
 celestron-aux --web 0.0.0.0:8080 --web-password       # asks for it when the program starts
+AUXBUS_SCANNER_WEB_PASSWORD=secret celestron-aux --web 0.0.0.0:8080
 celestron-aux --web 0.0.0.0:8080 --web-password=secret
 ```
 
-The browser asks for it once; any user name works. Asking at startup keeps the
-password out of your shell history, and needs a real terminal (Terminal,
-Command Prompt, PowerShell); where the program cannot hide what you type,
-Python warns that the password may show. With a value, write `--web-password=secret` (with `=`), so it is not mistaken for the
-mode. The page uses plain HTTP, so the password crosses the network
+On Windows, set the environment variable first, then start the program:
+
+```
+set AUXBUS_SCANNER_WEB_PASSWORD=secret            (Command Prompt)
+$env:AUXBUS_SCANNER_WEB_PASSWORD = "secret"       (PowerShell)
+py -m celestron_aux --web 0.0.0.0:8080
+```
+
+The browser asks for it once; any user name works. Asking at startup or the
+environment variable keeps the password out of your shell history. Asking at
+startup needs a real terminal (Terminal, Command Prompt, PowerShell); where the
+program cannot hide what you type, Python warns that the password may show.
+With a value, write `--web-password=secret` (with `=`), so it is not mistaken
+for the mode. The page uses plain HTTP, so the password crosses the network
 unencrypted: it keeps other people at the observing site out, but use
 `0.0.0.0` only on a network you trust.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from .protocol import AuxPacket
 from .transport import Transport
 from .transport.factory import MODES, create_transport
 
+PASSWORD_ENV = "AUXBUS_SCANNER_WEB_PASSWORD"
 PROMPT = "\0ask"  # --web-password without a value: ask when the program starts
 
 if TYPE_CHECKING:
@@ -65,8 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "(default: 127.0.0.1:8080; use 0.0.0.0:8080 to allow other devices)")
     parser.add_argument("--web-password", nargs="?", const=PROMPT, default=None, metavar="PASSWORD",
                         help="ask for a password before the web page opens (any user name). Without a "
-                             "value it is asked for when the program starts, which keeps it out of your "
-                             "shell history")
+                             "value it is asked for when the program starts; the environment variable "
+                             f"{PASSWORD_ENV} works too. Both keep it out of your shell history")
     exports = parser.add_argument_group("export (each runs, writes its file and exits)")
     exports.add_argument("--export-pcap", nargs=2, metavar=("CAPTURE", "PCAP"),
                          help="convert a raw capture (from --raw) to a pcap file for Wireshark")
@@ -450,12 +452,14 @@ def _run_exports(args: argparse.Namespace) -> int:
 
 
 def web_password(args: argparse.Namespace, ask: Callable[[str], str] = getpass.getpass) -> Optional[str]:
-    """The web page's password: from --web-password, or asked for."""
+    """The web page's password: from --web-password, asked for, or from the environment."""
     password = args.web_password
     if password == PROMPT:
         password = ask("Web page password: ")
         if password != ask("Same password again: "):
             raise ValueError("the two passwords differ")
+    elif password is None:
+        password = os.environ.get(PASSWORD_ENV) or None
     if password is not None and not password:
         raise ValueError("the web page password cannot be empty")
     return password

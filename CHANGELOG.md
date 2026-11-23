@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The web page's password can be given in the `AUXBUS_SCANNER_WEB_PASSWORD`
+  environment variable, which keeps it out of your shell history
+  (`--web-password` still takes precedence).
+
 ## 1.3.3
 
 ### Changed
