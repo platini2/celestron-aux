@@ -511,7 +511,8 @@ only when CPWI or the hand controller asks for them.
 Under the two spheres, a third view shows the telescope in its local sky, as
 if standing beside it: the horizon, meridian, zenith and celestial pole, and
 the mount drawn by type (alt-az, alt-az on a wedge, or equatorial with its
-counterweight) with its two axes and the tube. Below it are the altitude and
+counterweight) with its two axes and the tube, its line of sight, and the
+telescope's path and plates where they were over the horizon at the time. Below it are the altitude and
 azimuth, RA, Dec and hour angle, the motors' angles, which side of the pier
 the tube is on, and how far a wedge's or equatorial mount's axis is from the
 pole. From the bus, an equatorial mount is known from its motor's model

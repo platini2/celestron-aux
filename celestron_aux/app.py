@@ -263,6 +263,10 @@ class ScannerApp:
             path.append([round(ra % 360, 3), round(dec, 3)])
         return path
 
+    def sky_trail_altaz(self) -> List[List[float]]:
+        """The emulated telescope's path as [altitude, azimuth], oldest first, for the page's mount view."""
+        return [[round(alt, 3), round(az % 360, 3)] for _, alt, az in self.mount_emulator.trail()]
+
     def _starsense_v1_sky(self) -> Optional[Tuple[float, float, float]]:
         """RA, Dec and rotation the emulated StarSense camera sees; None below the horizon.
 

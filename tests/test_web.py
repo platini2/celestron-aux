@@ -696,8 +696,10 @@ def test_the_earth_and_sky_spheres_get_stars_land_and_where_the_telescope_points
     assert sky["mount"]["type"] == "altaz" and sky["mount"]["first_axis"]["alt"] == 90.0
     status, body = get(base, "/api/mount_emulator/status")
     assert json.loads(body)["sky_view"]["pointing"]["ra"] == pytest.approx(sky["pointing"]["ra"], abs=0.5)
-    trail = json.loads(get(base, "/api/sky/trail")[1])["trail"]
+    recorded = json.loads(get(base, "/api/sky/trail")[1])
+    trail = recorded["trail"]
     assert trail and abs(trail[-1][1] + 79.6) < 0.5  # where it points, as RA/Dec
+    assert recorded["altaz"][-1] == pytest.approx([45, 180], abs=0.1)  # and over the horizon
     assert post(base, "/api/sky/trail/clear")[0] == 200
     assert len(json.loads(get(base, "/api/sky/trail")[1])["trail"]) <= 1
 

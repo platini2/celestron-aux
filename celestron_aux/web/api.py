@@ -515,8 +515,9 @@ class WebApi:
         return sky_data.land()
 
     def sky_trail(self) -> Json:
-        """The emulated telescope's path on the sky, [RA, Dec] pairs, oldest first."""
-        return {"trail": self.session.sky_trail()}
+        """The emulated telescope's path on the sky, [RA, Dec] pairs, and over the horizon,
+        [altitude, azimuth] pairs, oldest first."""
+        return {"trail": self.session.sky_trail(), "altaz": self.session.sky_trail_altaz()}
 
     def sky_bus(self) -> Json:
         """The spheres built from the bus traffic (real devices, and emulators as they send it):

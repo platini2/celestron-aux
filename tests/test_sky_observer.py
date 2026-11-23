@@ -127,6 +127,8 @@ def test_real_traffic_builds_the_spheres():
     ra, dec = altaz_to_j2000(*expected, *SITE, datetime.fromtimestamp(T0 + feed.now, timezone.utc))
     assert view["trail"][-1] == pytest.approx([ra, dec], abs=0.01)
     assert len(view["trail"]) >= 2  # each motor answers on its own, so a move can add a step
+    assert view["trail_altaz"][-1] == pytest.approx(list(expected), abs=0.01)
+    assert view["plates"][0]["altaz"] == pytest.approx(list(truth.pointing(10, 30)), abs=0.01)
     feed.observer.clear_path()
     assert len(feed.observer.view()["trail"]) == 1
 

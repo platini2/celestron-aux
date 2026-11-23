@@ -20,7 +20,9 @@
 - A third view under the two spheres: the telescope in its local sky, seen
   from beside it. The horizon, meridian, zenith and celestial pole, the mount
   drawn by type (alt-az, alt-az on a wedge, equatorial) with both axes and,
-  on an equatorial mount, the counterweight, and the tube. Under it: altitude
+  on an equatorial mount, the counterweight, and the tube with its line of
+  sight. The telescope's path and the plates are marked where they were over
+  the horizon when it was there. Under it: altitude
   and azimuth, RA, Dec and hour angle, the motors' angles, which side of the
   pier the tube is on, and the polar error of a wedge or equatorial mount.
   From the bus, the type comes from the motor's model number (equatorial) or

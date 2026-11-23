@@ -494,6 +494,8 @@ class SkyObserver:
             model = self._fit(samples)
         pointing = None
         trail: List[List[float]] = []
+        trail_altaz: List[List[float]] = []
+        plate_altaz: Dict[int, List[float]] = {}
         if model is not None and found is not None:
             (latitude, longitude), _ = found
             if axes is not None:
@@ -506,6 +508,14 @@ class SkyObserver:
                 alt, az = model.pointing(azm, alt_motor)
                 ra, dec = altaz_to_j2000(alt, az, latitude, longitude, datetime.fromtimestamp(stamp + shift, timezone.utc))
                 trail.append([round(ra % 360, 3), round(dec, 3)])
+                trail_altaz.append([round(alt, 3), round(az % 360, 3)])
+        if found is not None:
+            (latitude, longitude), _ = found
+            for plate in plates:  # where each plate was over the horizon when it was taken
+                if plate.sky is not None:
+                    when = datetime.fromtimestamp(plate.time + shift, timezone.utc)
+                    plate_alt, plate_az = j2000_to_altaz(plate.sky[0], plate.sky[1], latitude, longitude, when)
+                    plate_altaz[plate.number] = [round(plate_alt, 3), round(plate_az, 3)]
         mount = None
         if model is not None and found is not None and axes is not None:
             number = self._mount_model()
@@ -528,9 +538,10 @@ class SkyObserver:
             "site": site,
             "pointing": pointing,
             "trail": trail,
+            "trail_altaz": trail_altaz,  # the same path over the horizon: [altitude, azimuth]
             "plates": [{"kind": p.kind, "number": p.number, "time": _iso(p.time + shift),
                         "sky": None if p.sky is None else {"ra": round(p.sky[0], 4), "dec": round(p.sky[1], 4)},
-                        "emulated": p.emulated,
+                        "emulated": p.emulated, "altaz": plate_altaz.get(p.number),
                         "status": "solved" if p.sky is not None else ((plate_status.get(p.key) if p.key else None) or "unsolved")}
                        for p in plates],
             "model": None if model is None else model.json(),

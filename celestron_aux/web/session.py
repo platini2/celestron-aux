@@ -375,6 +375,11 @@ class WebSession:
             app = self._app
         return app.sky_trail() if app is not None else []
 
+    def sky_trail_altaz(self) -> list:
+        with self._lock:
+            app = self._app
+        return app.sky_trail_altaz() if app is not None else []
+
     def sky_bus(self) -> Optional[dict]:
         """The spheres from the bus traffic: real devices', and the emulators' as they send it."""
         with self._lock:
