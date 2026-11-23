@@ -22,7 +22,7 @@ celestron-aux playback rawoutput.txt  # replay a recorded session
 
 Without Git, download `celestron-aux-<version>.zip` from the
 [Releases](https://github.com/platini2/celestron-aux/releases) page and install
-it directly with `pip install celestron-aux-1.3.2.zip` (`py -m pip install ...`
+it directly with `pip install celestron-aux-1.3.3.zip` (`py -m pip install ...`
 on Windows), or unpack it and run `pip install .` in its folder.
 
 `python -m celestron_aux ...` works too. Run `celestron-aux -h` for every option
@@ -79,7 +79,7 @@ celestron-aux --web 0.0.0.0:8080              # reachable from a phone or tablet
 1. Start the program with `--web`. It prints the address to open:
 
    ```
-   AUXBUS Scanner 1.3.2
+   AUXBUS Scanner 1.3.3
    Copyright © 2021-2026 Patricio Latini
    Web interface: http://localhost:8080/  (press Ctrl+C to stop)
    Open it and choose how to connect to the mount.
