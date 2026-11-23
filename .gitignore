@@ -6,4 +6,5 @@ auxbuslog.csv
 rawoutput.txt
 starsense-*.png
 deploy.env
+deploy.env.example
 .claude/

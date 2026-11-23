@@ -12,7 +12,10 @@
 #   4. Checks the public page matches.
 # It only writes to $DEPLOY_ROOT (and, with --setup, this site's own nginx file and certificate).
 #
-# Settings: deploy.env (not in git), see deploy.env.example.
+# Settings: deploy.env (not in git), a shell file that sets DEPLOY_HOST
+# (user@server), DEPLOY_NAME (the site's host name) and DEPLOY_ROOT (its own
+# folder under /var/www), and optionally DEPLOY_PORT (22), DEPLOY_OWNER
+# (www-data:www-data) and BACKUP_DIR (/var/backups/celestron-aux).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,7 +23,7 @@ cd "$ROOT"
 say() { echo "deploy-site: $*"; }
 die() { echo "deploy-site: $*" >&2; exit 1; }
 
-[[ -f deploy.env ]] || die "deploy.env not found. Copy deploy.env.example to deploy.env and fill it in."
+[[ -f deploy.env ]] || die "deploy.env not found: create it with DEPLOY_HOST, DEPLOY_NAME and DEPLOY_ROOT (see the top of this script)."
 # shellcheck disable=SC1091
 source deploy.env
 : "${DEPLOY_HOST:?set DEPLOY_HOST in deploy.env}"
