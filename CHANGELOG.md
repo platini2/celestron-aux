@@ -1,14 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.3.3
 
 ### Added
 
 - The web page's password can be given in the `AUXBUS_SCANNER_WEB_PASSWORD`
   environment variable, which keeps it out of your shell history
   (`--web-password` still takes precedence).
-
-## 1.3.3
 
 ### Changed
 
@@ -27,9 +25,9 @@
 
 ### Removed
 
-- The `CELESTRON_AUX_WEB_PASSWORD` environment variable is no longer read. Give
-  the web page's password with `--web-password` (asked for at startup when
-  given without a value) or `--web-password=secret`.
+- The `CELESTRON_AUX_WEB_PASSWORD` environment variable is no longer read: use
+  `AUXBUS_SCANNER_WEB_PASSWORD`, or `--web-password` (asked for at startup
+  when given without a value) or `--web-password=secret`.
 
 ## 1.3.2
 
