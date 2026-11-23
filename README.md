@@ -508,6 +508,11 @@ the bus, the way CPWI sees it, so the two can be compared. The panel lists
 which devices on the bus are emulated. The motors' positions are on the bus
 only when CPWI or the hand controller asks for them.
 
+Markers under the tag show whether the **time**, the **location** and the
+**pointing** are locked and to what: green for a real device (a GPS, CPWI,
+the motors placed by the plates), orange for an emulator, blue for this
+computer's clock, and hollow while not locked, with the reason.
+
 ### Limits of the emulation
 
 The emulators follow captures of real devices and community reverse

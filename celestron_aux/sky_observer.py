@@ -276,6 +276,7 @@ class SkyObserver:
         # A replayed recording runs at replay time; a clock in the traffic (CPWI telling the camera
         # the time, a GPS's answers) gives the real time, as an offset to add.
         self._time_offset = 0.0
+        self._time_from: Optional[str] = None  # whose clock the time comes from, once one is seen
         self._gps_date: List[Optional[int]] = [None, None, None]  # year, month, day
         self._model_cache: Tuple[Optional[Tuple[Sample, ...]], Optional[MountModel]] = (None, None)
 
@@ -318,7 +319,7 @@ class SkyObserver:
             if -90 <= latitude <= 90 and -180 <= longitude <= 360:
                 self._cpwi_location = (float(latitude), float(longitude))
         elif destination == Addr.STARSENSE_CAMERA_V2 and command == V2_SET_TIME_NOW and len(data) >= 4:
-            self._clock_seen(EPOCH_2000 + int.from_bytes(data[:4], "big"), stamp)
+            self._clock_seen(EPOCH_2000 + int.from_bytes(data[:4], "big"), stamp, "CPWI")
         elif source == Addr.GPS and command in (Cmd.GPS_GET_YEAR, Cmd.GPS_GET_DATE, Cmd.GPS_GET_TIME):
             self._gps_clock(command, data, stamp)
         elif destination == Addr.STARSENSE_CAMERA and command == Cmd.SS_START_CAPTURE:
@@ -329,7 +330,8 @@ class SkyObserver:
               and data[0] == V2_SOLVED):
             self._v2_solved(data, stamp)
 
-    def _clock_seen(self, real: float, stamp: float) -> None:
+    def _clock_seen(self, real: float, stamp: float, source: str) -> None:
+        self._time_from = source
         offset = real - stamp
         self._time_offset = offset if abs(offset) > CLOCK_SLACK else 0.0
 
@@ -344,7 +346,7 @@ class SkyObserver:
                 real = datetime(year, month, day, data[0], data[1], data[2], tzinfo=timezone.utc)  # type: ignore[arg-type]
             except ValueError:
                 return  # no fix yet: the GPS answers zeros
-            self._clock_seen(real.timestamp(), stamp)
+            self._clock_seen(real.timestamp(), stamp, "GPS emulator" if self._emulated(Addr.GPS) else "GPS")
 
     def _extend_path(self, stamp: float) -> None:
         axes = self._axes()
@@ -433,6 +435,7 @@ class SkyObserver:
             path = list(self._path)
             axes, axes_time = self._axes(), self._axes_time
             shift = self._time_offset
+            time_from = self._time_from
             now = (self._last_time if self._last_time is not None else time.time()) + shift
             emulated = (["telescope"] if self._motors_emulated and axes is not None else []) \
                 + (["GPS"] if self._gps_emulated and self._gps[0] is not None else []) \
@@ -477,4 +480,5 @@ class SkyObserver:
             "model": None if model is None else model.json(),
             "motors": axes is not None,
             "emulated": emulated,  # what in this view an emulator said
+            "time_from": time_from,  # whose clock set the time (None: this computer's)
         }

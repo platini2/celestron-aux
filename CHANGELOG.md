@@ -17,6 +17,10 @@
   data, the emulators' own state, or the emulators' data as it reaches the
   bus. While emulators run, a slider picks between the last two, and the
   panel lists which devices on the bus are emulated.
+- Lock markers for the time, the location and the pointing, each with where
+  it comes from: green for a real device (GPS, CPWI, the motors and plates),
+  orange for an emulator, blue for this computer's clock, hollow while not
+  locked, with the reason.
 
 ### Changed
 

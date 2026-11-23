@@ -209,9 +209,18 @@
   .source-slide .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px;
                          background: #7a5216; transition: transform 0.2s ease; }
   .source-slide.bus .thumb { transform: translateX(100%); background: #2b4f80; }
+  .sphere-locks { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+  .lock { display: inline-flex; align-items: center; gap: 7px; font-size: 0.84rem; padding: 4px 10px; border-radius: 8px;
+          background: #0b1020; border: 1px solid var(--border, #2a3247); color: var(--muted); }
+  .lock b { color: var(--text, #e6e9f2); font-weight: 600; }
+  .lock .dot { width: 9px; height: 9px; border-radius: 50%; border: 2px solid #6b7488; flex: none; }
+  .lock.real .dot { background: #5DCAA5; border-color: #5DCAA5; }
+  .lock.emulated .dot { background: #EF9F27; border-color: #EF9F27; }
+  .lock.local .dot { background: #85B7EB; border-color: #85B7EB; }
   .sphere-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.84rem; color: var(--muted); margin: 10px 0; }
   .sphere-legend i { display: inline-block; width: 16px; height: 0; margin-right: 6px; vertical-align: 3px; }
   .sphere-legend i.square { width: 9px; height: 9px; border: 2px solid #EF9F27; vertical-align: -1px; }
+  .sphere-legend i.lock-key { width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; box-sizing: border-box; }
   .sphere-legend i.arrow { border-top: 2px solid #EF9F27; }
   .capture-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 10px; }
   @media (max-width: 700px) { .capture-grid { grid-template-columns: minmax(0, 1fr); } }
@@ -783,6 +792,7 @@
       </div>
       <small id="spheres-source-note"></small>
     </div>
+    <div id="sphere-locks" class="sphere-locks" aria-live="polite"></div>
     <div class="spheres">
       <figure>
         <svg id="earth-sphere" viewBox="0 0 300 300" role="img" aria-label="The Earth, with the telescope at its location and a ray along its pointing"></svg>
@@ -799,6 +809,10 @@
       <span><i style="border-top:2px dashed #85B7EB"></i>Telescope path</span>
       <span><i class="square"></i>Plate solved</span>
       <span><i class="arrow"></i>Telescope</span>
+      <span><i class="lock-key" style="background:#5DCAA5"></i>Locked: real device</span>
+      <span><i class="lock-key" style="background:#EF9F27"></i>Locked: emulator</span>
+      <span><i class="lock-key" style="background:#85B7EB"></i>This computer's clock</span>
+      <span><i class="lock-key" style="border:2px solid #6b7488"></i>Not locked</span>
     </div>
     <div class="buttons">
       <label class="switch inline"><input id="spheres-link" type="checkbox" checked><span>Turn together</span></label>
@@ -2148,6 +2162,46 @@ function drawSpheres() {
   if (!SPH.view || $("#spheres-panel").hidden) return;
   drawEarth();
   drawSkySphere();
+  renderLocks();
+}
+// Whether the time, the location and the pointing are locked, and to what. Green: a real device;
+// orange: an emulator; blue: this computer's clock; hollow: not locked yet.
+function renderLocks() {
+  const bus = skySource() === "bus", sky = SPH.sky || {}, view = SPH.bus, emulated = (bus && view && view.emulated) || [];
+  const fromEmulator = (text) => /emulator/.test(text);
+  const locks = [];
+  if (!bus) locks.push(["Time", "local", "this computer's clock", "The emulators use this computer's clock."]);
+  else if (sky.time_from) locks.push(["Time", fromEmulator(sky.time_from) ? "emulated" : "real", sky.time_from, `Taken from the clock of ${sky.time_from === "CPWI" ? "CPWI" : "the " + sky.time_from}, as sent on the bus.`]);
+  else locks.push(["Time", "", "not locked: this computer's clock", "No clock seen on the bus yet (CPWI sending the time, or a GPS): this computer's clock is used."]);
+  const site = sky.site;
+  if (site) locks.push(["Location", fromEmulator(site.from) ? "emulated" : "real", site.from, `${site.lat.toFixed(4)}, ${site.lon.toFixed(4)}`]);
+  else locks.push(["Location", "", "not locked", bus ? "No GPS position or location from CPWI on the bus yet." : "Switch on the GPS emulator, or let CPWI send a location."]);
+  const pointing = sky.pointing;
+  if (!bus) {
+    locks.push(pointing ? ["Pointing", "emulated", "telescope emulator", `Altitude ${pointing.alt.toFixed(2)}°, azimuth ${pointing.az.toFixed(2)}°`]
+      : ["Pointing", "", "not locked", "No emulated telescope running."]);
+  } else if (pointing && view.model) {
+    const plateKinds = [...new Set(plates().map((p) => p.kind === "V1 capture" ? "StarSense V1" : "StarSense V2"))];
+    const plateText = plateKinds.map((k) => emulated.includes(k) ? `${k} emulator` : k).join(" + ");
+    const motors = emulated.includes("telescope") ? "telescope emulator's motors" : "motors";
+    const anyEmulated = emulated.includes("telescope") || plateKinds.some((k) => emulated.includes(k));
+    locks.push(["Pointing", anyEmulated ? "emulated" : "real", `${motors} + ${view.model.plates} plate${view.model.plates === 1 ? "" : "s"} (${plateText})`,
+      `Mount model: ${view.model.kind}, ${view.model.rms.toFixed(2)}° rms`]);
+  } else {
+    const why = !view || !view.motors ? "no motor positions" : !sky.site ? "no location" : "no plate solved";
+    locks.push(["Pointing", "", `not locked: ${why}`, "The motors' positions, a location and a solved plate lock it."]);
+  }
+  const box = $("#sphere-locks");
+  box.textContent = "";
+  for (const [name, kind, text, detail] of locks) {
+    const chip = document.createElement("span");
+    chip.className = `lock ${kind}`;
+    chip.title = detail;
+    chip.innerHTML = `<span class="dot"></span><b></b><span></span>`;
+    chip.querySelector("b").textContent = name;
+    chip.lastChild.textContent = text;
+    box.appendChild(chip);
+  }
 }
 async function loadTrail() {
   // The path recorded so far (also while no page was open); live updates extend it.
@@ -2206,7 +2260,7 @@ async function pollBusSky() {
     const view = (await (await fetch("/api/sky/bus", { cache: "no-store" })).json()).view;
     if (skySource() !== "bus") return;
     SPH.bus = view;
-    SPH.sky = view ? { time: view.time, site: view.site, pointing: view.pointing } : null;
+    SPH.sky = view ? { time: view.time, site: view.site, pointing: view.pointing, time_from: view.time_from } : null;
     SPH.trail = view ? view.trail : [];
     const show = Boolean(view && (SPH.sources.bus || SPH.sources.emulator));
     $("#spheres-panel").hidden = !show;

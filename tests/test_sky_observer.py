@@ -207,3 +207,14 @@ def test_a_telescope_past_the_zenith_is_the_same_mount():
     samples = [(azm, alt, *truth.pointing(azm, alt)) for azm, alt in [(0, 0), (85.7, 0), (85.7, 64.5), (312, 64.5)]]
     model = fit_mount(samples)
     assert model.kind == "alt-az" and model.rms < 0.01
+
+
+def test_the_view_says_whose_clock_set_the_time():
+    feed = Feed(emulated={GPS})
+    assert feed.observer.view()["time_from"] is None  # this computer's clock
+    feed.packet(GPS, APP, 0x04, (2026).to_bytes(2, "big"))
+    feed.packet(GPS, APP, 0x03, bytes((11, 23)))
+    feed.packet(GPS, APP, 0x33, bytes((3, 0, 0)))
+    assert feed.observer.view()["time_from"] == "GPS emulator"
+    feed.packet(APP, V2, 0x32, int(T0 - EPOCH_2000).to_bytes(4, "big"))
+    assert feed.observer.view()["time_from"] == "CPWI"

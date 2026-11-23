@@ -229,7 +229,7 @@ class ScannerApp:
         if location is None and self.starsense_v2.location is not None:
             location, source = self.starsense_v2.location, "CPWI"
         site = None if location is None else {"lat": location[0], "lon": location[1], "from": source}
-        pointing = None
+        pointing: Optional[Dict[str, object]] = None
         sky = self.mount_emulator.sky_pointing()
         if sky is not None:
             alt, az, alt_az = sky
@@ -237,7 +237,10 @@ class ScannerApp:
             if location is not None:
                 ra, dec = altaz_to_j2000(alt, az, location[0], location[1], when)
                 pointing.update(ra=round(ra % 360, 4), dec=round(dec, 4))
-        return {"time": when.isoformat(timespec="milliseconds"), "site": site, "pointing": pointing}
+        if pointing is not None:
+            pointing["from"] = "telescope emulator"
+        return {"time": when.isoformat(timespec="milliseconds"), "site": site, "pointing": pointing,
+                "time_from": "this computer's clock"}
 
     def sky_trail(self) -> List[List[float]]:
         """The emulated telescope's path as [RA, Dec] (J2000, degrees), oldest first, for the
