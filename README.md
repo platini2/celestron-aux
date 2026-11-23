@@ -508,8 +508,17 @@ the bus, the way CPWI sees it, so the two can be compared. The panel lists
 which devices on the bus are emulated. The motors' positions are on the bus
 only when CPWI or the hand controller asks for them.
 
-Markers under the tag show whether the **time**, the **location** and the
-**pointing** are locked and to what: green for a real device (a GPS, CPWI,
+Under the two spheres, a third view shows the telescope in its local sky, as
+if standing beside it: the horizon, meridian, zenith and celestial pole, and
+the mount drawn by type (alt-az, alt-az on a wedge, or equatorial with its
+counterweight) with its two axes and the tube. Below it are the altitude and
+azimuth, RA, Dec and hour angle, the motors' angles, which side of the pier
+the tube is on, and how far a wedge's or equatorial mount's axis is from the
+pole. From the bus, an equatorial mount is known from its motor's model
+number; a wedge or a mount off level from the mount fit.
+
+Markers under the tag show whether the **time**, the **location**, the
+**pointing** and the **mount** are locked and to what: green for a real device (a GPS, CPWI,
 the motors placed by the plates), orange for an emulator, blue for this
 computer's clock, and hollow while not locked, with the reason.
 

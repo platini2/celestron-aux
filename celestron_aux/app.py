@@ -27,10 +27,10 @@ from .protocol.units import format_version, parse_version
 from .registry import DeviceRegistry
 from .scanner import BusScanner
 from .device_emulators import DewHeaterEmulator, FocuserEmulator, WifiModuleEmulator
-from .sky_observer import SkyObserver
+from .sky_observer import SkyObserver, mount_geometry
 from .sky import altaz_to_j2000, altaz_to_radec, parallactic_angle
 from .starsense_v1_emulator import RECORDED_SKY, StarSenseV1Emulator
-from .mount_emulator import MountEmulator
+from .mount_emulator import GEM, MountEmulator
 from .starsense_emulator import StarSenseEmulator
 from .star_solver import StarListSolver
 from .starsense import StarImageSaver, StarSenseCapture
@@ -124,7 +124,8 @@ class ScannerApp:
         }
         # What the devices on the bus say about the sky (location, motor positions, plates), for the spheres.
         self.sky_observer = SkyObserver(self.star_solver, self._emulated,
-                                        lambda stamp: time.time() - self.clock.now() + stamp)
+                                        lambda stamp: time.time() - self.clock.now() + stamp,
+                                        lambda: self.registry.mount_model)
         self.scanner = BusScanner(self.bus, self.registry)
         self.motion = MountMotion(self.bus, enabled=config.motion_enabled)
         self.gps_monitor = GpsMonitor(self.bus, enabled=config.gps_polling)
@@ -237,10 +238,17 @@ class ScannerApp:
             if location is not None:
                 ra, dec = altaz_to_j2000(alt, az, location[0], location[1], when)
                 pointing.update(ra=round(ra % 360, 4), dec=round(dec, 4))
+        mount = None
         if pointing is not None:
             pointing["from"] = "telescope emulator"
+            geometry = self.mount_emulator.geometry()
+            if geometry is not None:
+                spec = self.mount_emulator.setup.spec
+                kind = "gem" if spec.kind == GEM else "wedge" if self.mount_emulator.setup.wedge else "altaz"
+                mount = mount_geometry(kind, geometry[0], geometry[1], geometry[2], (geometry[3], geometry[4]), location)
+                mount.update(name=spec.name, type_from="telescope emulator")
         return {"time": when.isoformat(timespec="milliseconds"), "site": site, "pointing": pointing,
-                "time_from": "this computer's clock"}
+                "time_from": "this computer's clock", "mount": mount}
 
     def sky_trail(self) -> List[List[float]]:
         """The emulated telescope's path as [RA, Dec] (J2000, degrees), oldest first, for the

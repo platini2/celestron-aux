@@ -194,6 +194,11 @@
   @media (max-width: 700px) { .spheres { grid-template-columns: minmax(0, 1fr); } }
   .spheres figure { margin: 0; }
   .spheres svg { width: 100%; height: auto; display: block; touch-action: none; cursor: grab; border-radius: 8px; background: #070b16; }
+  .spheres figure.mount-view { grid-column: 1 / -1; justify-self: center; width: calc(50% - 7px); }
+  @media (max-width: 700px) { .spheres figure.mount-view { width: 100%; } }
+  .mount-coords { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 3px 12px; font-size: 0.84rem; margin-top: 6px; }
+  .mount-coords span:nth-child(odd) { color: var(--muted); }
+  .mount-coords span:nth-child(even) { font-variant-numeric: tabular-nums; }
   .spheres figcaption { font-size: 0.84rem; color: var(--muted); margin-top: 6px; min-height: 2.6em; }
   .sphere-source { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; }
   .source-tag { font-size: 0.8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
@@ -799,6 +804,11 @@
         <svg id="sky-sphere" viewBox="0 0 300 300" role="img" aria-label="The sky: Hipparcos stars, the telescope's path and the solved plates"></svg>
         <figcaption id="sky-caption-sphere"></figcaption>
       </figure>
+      <figure class="mount-view">
+        <svg id="mount-sphere" viewBox="0 0 300 300" role="img" aria-label="The telescope in its local sky: the mount, its axes, the tube and the celestial pole"></svg>
+        <figcaption id="mount-caption"></figcaption>
+        <div id="mount-coords" class="mount-coords"></div>
+      </figure>
     </div>
     <div class="sphere-legend">
       <span><i style="border-top:2px solid #378ADD"></i>Equator</span>
@@ -806,6 +816,9 @@
       <span><i style="border-top:2px dashed #85B7EB"></i>Telescope path</span>
       <span><i class="square"></i>Plate solved</span>
       <span><i class="arrow"></i>Telescope</span>
+      <span><i style="border-top:2px solid #AFA9EC"></i>First axis</span>
+      <span><i style="border-top:2px solid #5DCAA5"></i>Second axis</span>
+      <span><i class="lock-key" style="border:1.5px solid #85B7EB"></i>Celestial pole</span>
       <span><i class="lock-key" style="background:#5DCAA5"></i>Locked: real device</span>
       <span><i class="lock-key" style="background:#EF9F27"></i>Locked: emulator</span>
       <span><i class="lock-key" style="background:#85B7EB"></i>This computer's clock</span>
@@ -2157,8 +2170,114 @@ function drawSpheres() {
   if (!SPH.view || $("#spheres-panel").hidden) return;
   drawEarth();
   drawSkySphere();
+  drawMountView();
   renderLocks();
 }
+// The telescope in its local sky, seen from beside it: the horizon, the meridian, the zenith and
+// the celestial pole, the mount drawn by type with its two axes, and the tube.
+const MOUNT_VIEW = { yaw: -35, pitch: 22 };
+const MOUNT_TYPES = { altaz: "Alt-az", tilted: "Alt-az, off level", wedge: "Alt-az on a wedge", gem: "Equatorial (GEM)" };
+function enuOf(alt, az) { return [Math.cos(alt * DEG) * Math.sin(az * DEG), Math.cos(alt * DEG) * Math.cos(az * DEG), Math.sin(alt * DEG)]; }
+function drawMountView() {
+  const svg = $("#mount-sphere"), sky = SPH.sky || {}, mount = sky.mount, pointing = sky.pointing, site = sky.site;
+  svg.textContent = "";
+  const view = MOUNT_VIEW, R = 112;
+  const at = ([e, n, u]) => {
+    const y = view.yaw * DEG, x = view.pitch * DEG;
+    const e1 = e * Math.cos(y) - n * Math.sin(y), n1 = e * Math.sin(y) + n * Math.cos(y);
+    const depth = n1 * Math.cos(x) - u * Math.sin(x), up = n1 * Math.sin(x) + u * Math.cos(x);
+    return { x: 150 + e1 * R, y: 205 - up * R, back: depth > 0.05 };
+  };
+  const plus = (a, b, k) => a.map((v, i) => v + b[i] * k);
+  const path = (points, attrs, side) => {
+    let d = "", pen = false;
+    for (const p of points) {
+      const q = at(p);
+      if ((side === "front" && q.back) || (side === "back" && !q.back)) { pen = false; continue; }
+      d += `${pen ? "L" : "M"}${q.x.toFixed(1)} ${q.y.toFixed(1)}`; pen = true;
+    }
+    if (d) svgAdd(svg, "path", Object.assign({ d, fill: "none", "stroke-linecap": "round" }, attrs));
+  };
+  const bar = (a, b, colour, width) => { const p = at(a), q = at(b); svgAdd(svg, "line", { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: colour, "stroke-width": width, "stroke-linecap": "round" }); };
+  const label = (p, text, colour, size) => { const q = at(p); svgAdd(svg, "text", { x: q.x, y: q.y, fill: colour, "font-size": size || 11, "text-anchor": "middle", "dominant-baseline": "central" }, text); };
+  const ring = (alt) => { const r = []; for (let az = 0; az <= 360; az += 6) r.push(enuOf(alt, az)); return r; };
+  const meridian = []; for (let a = 0; a <= 180; a += 4) meridian.push(enuOf(a <= 90 ? a : 180 - a, a <= 90 ? 0 : 180));
+  for (const side of ["back", "front"]) {
+    const faint = side === "back";
+    path(ring(0), { stroke: "#5DCAA5", "stroke-width": faint ? 0.8 : 1.4, "stroke-dasharray": faint ? "3 4" : "" }, side);
+    for (const alt of [30, 60]) path(ring(alt), { stroke: `rgba(181,212,244,${faint ? 0.1 : 0.25})`, "stroke-width": 0.6 }, side);
+    path(meridian, { stroke: "#85B7EB", "stroke-width": faint ? 0.7 : 1, "stroke-dasharray": "4 4", opacity: faint ? 0.5 : 1 }, side);
+  }
+  for (const [text, az] of [["N", 0], ["E", 90], ["S", 180], ["W", 270]]) label(enuOf(0, az).map((v) => v * 1.1), text, "#9aa4bd", 12);
+  label([0, 0, 1.1], "Zenith", "#9FE1CB");
+  if (site) {
+    const pole = enuOf(Math.abs(site.lat), site.lat < 0 ? 180 : 0).map((v) => v * 0.98), q = at(pole);
+    svgAdd(svg, "circle", { cx: q.x, cy: q.y, r: 4, fill: "none", stroke: "#85B7EB", "stroke-width": 1.5 });
+    label(plus(pole, [0, 0, 1], 0.1), site.lat < 0 ? "SCP" : "NCP", "#85B7EB");
+  }
+  const base = [0, 0, 0.03], foot = [0, 0, -0.33];
+  for (const az of [30, 150, 270]) bar(base, plus(foot, enuOf(0, az), 0.28), "#6b7488", 2);
+  if (mount && pointing) {
+    const tube = enuOf(pointing.alt, pointing.az), first = enuOf(mount.first_axis.alt, mount.first_axis.az);
+    const second = enuOf(mount.second_axis.alt, mount.second_axis.az);
+    let head;
+    if (mount.type === "altaz") { head = plus(base, [0, 0, 1], 0.12); bar(base, head, "#6b7488", 4); }
+    else { const riser = plus(base, [0, 0, 1], 0.06); bar(base, riser, "#6b7488", 4); head = plus(riser, first, 0.12); bar(riser, head, "#6b7488", 4); }
+    bar(head, plus(head, first, 0.42), "#AFA9EC", 1.5); label(plus(head, first, 0.5), "1", "#AFA9EC", 10);
+    if (mount.type === "gem") {
+      const weight = plus(head, second, -0.22); bar(head, weight, "#888780", 2.5);
+      const w = at(weight); svgAdd(svg, "circle", { cx: w.x, cy: w.y, r: 5, fill: "#888780" });
+      head = plus(head, second, 0.12);
+    }
+    bar(head, plus(head, second, 0.28), "#5DCAA5", 1.5); label(plus(head, second, 0.35), "2", "#5DCAA5", 10);
+    bar(plus(head, tube, -0.12), plus(head, tube, 0.32), "#EF9F27", 7);
+    path([plus(head, tube, 0.32), tube.map((v) => v * 0.99)], { stroke: "#EF9F27", "stroke-width": 1.2, "stroke-dasharray": "2 3" }, "all");
+    const tip = at(tube.map((v) => v * 0.99));
+    svgAdd(svg, "circle", { cx: tip.x, cy: tip.y, r: 4, fill: "#EF9F27" });
+  } else svgAdd(svg, "text", { x: 150, y: 290, fill: "#F0997B", "font-size": 11, "text-anchor": "middle" },
+    skySource() === "bus" ? "Mount not placed yet: motors, a location and a plate" : "No emulated telescope");
+  $("#mount-caption").textContent = mount
+    ? `${mount.name ? mount.name + " · " : ""}${MOUNT_TYPES[mount.type] || mount.type} · from the ${mount.type_from}`
+    : "The telescope beside you: where the tube points over the horizon, and how the mount gets it there.";
+  const rows = [];
+  if (mount && pointing) {
+    const eq = mount.type === "gem" || mount.type === "wedge";
+    rows.push(["Altitude", `${pointing.alt.toFixed(1)}°`], ["Azimuth", `${pointing.az.toFixed(1)}°`]);
+    if (pointing.ra !== undefined) {
+      rows.push(["RA", formatRa(pointing.ra)], ["Dec", formatDec(pointing.dec)]);
+      if (site) {
+        const hours = ((((gmst(sky.time) + site.lon - pointing.ra) % 360) + 540) % 360 - 180) / 15;
+        rows.push(["Hour angle", `${hours < 0 ? "−" : "+"}${Math.abs(hours).toFixed(2)} h`]);
+      }
+    }
+    rows.push([eq ? "RA motor" : "Azm motor", `${mount.motors.azm.toFixed(2)}°`], [eq ? "Dec motor" : "Alt motor", `${mount.motors.alt.toFixed(2)}°`]);
+    if (mount.pier_side) rows.push(["Tube", `${mount.pier_side} of the pier`]);
+    if (mount.polar_error !== undefined) rows.push(["Polar error", `${mount.polar_error.toFixed(2)}°`]);
+    if (mount.type === "tilted") rows.push(["First axis", `${mount.first_axis.alt.toFixed(1)}° up`]);
+  }
+  const box = $("#mount-coords");
+  box.textContent = "";
+  for (const [name, value] of rows) {
+    const k = document.createElement("span"), v = document.createElement("span");
+    k.textContent = name; v.textContent = value; box.append(k, v);
+  }
+}
+(() => {
+  const svg = $("#mount-sphere");
+  let last = null;
+  svg.addEventListener("pointerdown", (e) => { last = [e.clientX, e.clientY]; svg.setPointerCapture(e.pointerId); svg.style.cursor = "grabbing"; });
+  svg.addEventListener("pointermove", (e) => {
+    if (!last) return;
+    const scale = 300 / svg.getBoundingClientRect().width;
+    MOUNT_VIEW.yaw += (e.clientX - last[0]) * scale * 0.5;
+    MOUNT_VIEW.pitch = Math.max(-5, Math.min(85, MOUNT_VIEW.pitch + (e.clientY - last[1]) * scale * 0.4));
+    last = [e.clientX, e.clientY];
+    drawMountView();
+  });
+  const up = () => { last = null; svg.style.cursor = "grab"; };
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", up);
+})();
 // Whether the time, the location and the pointing are locked, and to what. Green: a real device;
 // orange: an emulator; blue: this computer's clock; hollow: not locked yet.
 function renderLocks() {
@@ -2186,6 +2305,10 @@ function renderLocks() {
     const why = !view || !view.motors ? "no motor positions" : !sky.site ? "no location" : "no plate solved";
     locks.push(["Pointing", "", `not locked: ${why}`, "The motors' positions, a location and a solved plate lock it."]);
   }
+  const mount = sky.mount;
+  if (mount) locks.push(["Mount", fromEmulator(mount.type_from) || emulated.includes("telescope") ? "emulated" : "real",
+    `${MOUNT_TYPES[mount.type] || mount.type} · ${mount.type_from}`, mount.name || "Model not reported"]);
+  else locks.push(["Mount", "", "not locked", "Placed with the pointing: the motors, a location and a plate."]);
   const box = $("#sphere-locks");
   box.textContent = "";
   for (const [name, kind, text, detail] of locks) {
@@ -2255,7 +2378,7 @@ async function pollBusSky() {
     const view = (await (await fetch("/api/sky/bus", { cache: "no-store" })).json()).view;
     if (skySource() !== "bus") return;
     SPH.bus = view;
-    SPH.sky = view ? { time: view.time, site: view.site, pointing: view.pointing, time_from: view.time_from } : null;
+    SPH.sky = view ? { time: view.time, site: view.site, pointing: view.pointing, time_from: view.time_from, mount: view.mount } : null;
     SPH.trail = view ? view.trail : [];
     const show = Boolean(view && (SPH.sources.bus || SPH.sources.emulator));
     $("#spheres-panel").hidden = !show;
@@ -2322,7 +2445,11 @@ function sphereDrag(id, key) {
 }
 sphereDrag("#earth-sphere", "earth");
 sphereDrag("#sky-sphere", "sky");
-$("#spheres-reset").addEventListener("click", () => { SPH.view = { earth: sphereDefault(), sky: sphereDefault() }; drawSpheres(); });
+$("#spheres-reset").addEventListener("click", () => {
+  SPH.view = { earth: sphereDefault(), sky: sphereDefault() };
+  Object.assign(MOUNT_VIEW, { yaw: -35, pitch: 22 });
+  drawSpheres();
+});
 $("#spheres-clear").addEventListener("click", async (e) => {
   await act("/api/sky/trail/clear", { source: skySource() }, e.currentTarget);
   SPH.trail = [];

@@ -17,6 +17,14 @@
   data, the emulators' own state, or the emulators' data as it reaches the
   bus. While emulators run, a slider picks between the last two, and the
   panel lists which devices on the bus are emulated.
+- A third view under the two spheres: the telescope in its local sky, seen
+  from beside it. The horizon, meridian, zenith and celestial pole, the mount
+  drawn by type (alt-az, alt-az on a wedge, equatorial) with both axes and,
+  on an equatorial mount, the counterweight, and the tube. Under it: altitude
+  and azimuth, RA, Dec and hour angle, the motors' angles, which side of the
+  pier the tube is on, and the polar error of a wedge or equatorial mount.
+  From the bus, the type comes from the motor's model number (equatorial) or
+  from the mount fit (wedge, off level).
 - Lock markers for the time, the location and the pointing, each with where
   it comes from: green for a real device (GPS, CPWI, the motors and plates),
   orange for an emulator, blue for this computer's clock, hollow while not

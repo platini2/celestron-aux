@@ -693,6 +693,7 @@ def test_the_earth_and_sky_spheres_get_stars_land_and_where_the_telescope_points
     assert sky["site"] == {"lat": -34.6, "lon": -58.4, "from": "GPS emulator"}
     assert abs(sky["pointing"]["alt"] - 45) < 0.1 and abs(sky["pointing"]["dec"] + 79.6) < 0.5  # due south from Buenos Aires
     assert sky["pointing"]["from"] == "telescope emulator" and sky["time_from"] == "this computer's clock"
+    assert sky["mount"]["type"] == "altaz" and sky["mount"]["first_axis"]["alt"] == 90.0
     status, body = get(base, "/api/mount_emulator/status")
     assert json.loads(body)["sky_view"]["pointing"]["ra"] == pytest.approx(sky["pointing"]["ra"], abs=0.5)
     trail = json.loads(get(base, "/api/sky/trail")[1])["trail"]

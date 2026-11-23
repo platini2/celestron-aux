@@ -383,6 +383,17 @@ class MountEmulator(DeviceEmulator):
             self.setup = replace(self.setup, inclination=inclination, rotation=rotation % 360)
             self.frame = Frame.for_axis(*self.setup.polar_axis)
 
+    def geometry(self) -> Optional[Tuple[Frame, float, float, float, float]]:
+        """The mount's axes and where it is on them, while emulating: its frame, the angle around
+        the first axis and above its equator, and the azimuth and altitude motors' readings."""
+        with self._lock:
+            if not self._enabled:
+                return None
+            self._advance()
+            azm, alt = self.axes[Addr.AZM_MOTOR], self.axes[Addr.ALT_MOTOR]
+            return (self.frame, self._origin[0] + azm.degrees - azm.zero, self._origin[1] + alt.degrees - alt.zero,
+                    azm.degrees, alt.degrees)
+
     def sky_pointing(self) -> Optional[Tuple[float, float, bool]]:
         """Altitude, azimuth and whether it is alt-az, while emulating; else None."""
         with self._lock:

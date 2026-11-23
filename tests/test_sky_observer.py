@@ -218,3 +218,31 @@ def test_the_view_says_whose_clock_set_the_time():
     assert feed.observer.view()["time_from"] == "GPS emulator"
     feed.packet(APP, V2, 0x32, int(T0 - EPOCH_2000).to_bytes(4, "big"))
     assert feed.observer.view()["time_from"] == "CPWI"
+
+
+def test_the_mount_view_gives_the_axes_the_polar_error_and_the_pier_side():
+    from celestron_aux.mount_emulator import Frame
+    from celestron_aux.sky_observer import mount_geometry
+    level = mount_geometry("altaz", Frame.for_axis(90, 0), 120, 40, (10, 20), SITE)
+    assert level["first_axis"] == {"alt": 90.0, "az": 0.0} and level["second_axis"] == {"alt": 0.0, "az": 210.0}
+    assert "polar_error" not in level and "pier_side" not in level
+    wedge = mount_geometry("wedge", Frame.for_axis(35.1, 181), 0, 0, (0, 0), SITE)
+    assert wedge["polar_error"] == pytest.approx(0.96, abs=0.01)  # the south pole is 34.6 up, due south
+    polar = Frame.for_axis(-SITE[0], 180)
+    sides = {mount_geometry("gem", polar, first, 20, (0, 0), SITE)["pier_side"] for first in (30, 210)}
+    assert sides == {"east", "west"}  # half a turn of the RA axis puts the tube on the other side
+
+
+def test_the_bus_view_names_the_mount_type():
+    from celestron_aux.sky_observer import MountModel
+    wedge = MountModel(34.6, 180, 80.0, -10.0, 1, 1, 0, 0)
+    for model_number, expected in ((None, "wedge"), (0x1788, "gem")):  # 0x1788: a CGX
+        feed = Feed()
+        feed.observer._mount_model = lambda: model_number
+        feed.gps(*SITE)
+        for seed, (azm, alt) in enumerate([(0, 20), (90, 40), (200, 10)]):
+            feed.capture(seed + 10, wedge, azm, alt)
+            feed.now += 5
+        mount = feed.observer.view()["mount"]
+        assert mount["type"] == expected and mount["polar_error"] < 0.1
+        assert mount["type_from"] == ("motor model 0x1788" if model_number else "mount fit to the plates")

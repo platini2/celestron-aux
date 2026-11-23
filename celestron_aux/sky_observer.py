@@ -37,7 +37,7 @@ from typing import Callable, Deque, Dict, List, Optional, Sequence, Tuple
 
 from .bus import BusEvent
 from .catalog import Addr, Cmd
-from .mount_emulator import Frame
+from .mount_emulator import GEM, MOUNTS, Frame
 from .protocol import AuxPacket, StarSenseFrame
 from .protocol.units import bam_to_degrees
 from .sky import altaz_to_j2000, j2000_to_altaz
@@ -55,6 +55,7 @@ MAX_PLATES = 64
 CAPTURE_WINDOW = 60.0            # seconds: the motors at a capture command stand for the star list that follows
 LEVEL_IS_GOOD = 0.5              # degrees rms: a level alt-az fit this good is kept
 SIGN_MARGIN = 0.5                # degrees rms another axis direction must win by
+WEDGE_SLACK = 15.0               # degrees: a tilted first axis this close to the pole's height is a wedge
 
 Vector = Tuple[float, float, float]
 Sample = Tuple[float, float, float, float]  # motor azm, motor alt, sky alt, sky az (degrees)
@@ -233,6 +234,42 @@ def fit_mount(samples: Sequence[Sample]) -> Optional[MountModel]:
     return best
 
 
+# --- how the mount stands ----------------------------------------------------------------
+
+def _altaz(v: Sequence[float]) -> Tuple[float, float]:
+    """A direction (north, east, up) as altitude and azimuth, degrees."""
+    alt = math.degrees(math.asin(max(-1.0, min(1.0, v[2]))))
+    return alt, math.degrees(math.atan2(v[1], v[0])) % 360
+
+
+def mount_geometry(kind: str, frame: Frame, first: float, second: float, motors: Tuple[float, float],
+                   site: Optional[Tuple[float, float]]) -> Dict[str, object]:
+    """What the page's mount view draws: the type, both axes, the motors and, for a wedge or an
+    equatorial mount, how far its first axis is from the celestial pole and which side of the
+    pier the tube is on.
+
+    ``kind`` is "altaz", "wedge", "gem" or "tilted" (alt-az, off level). ``first`` and
+    ``second`` are the angles around the first axis and above its equator. The second axis
+    turns with the first: it is the first-axis frame's y axis turned by ``first``.
+    """
+    a = math.radians(first)
+    second_axis = [-math.sin(a) * x + math.cos(a) * y for x, y in zip(frame.x, frame.y)]
+    first_alt, first_az = _altaz(frame.z)
+    result: Dict[str, object] = {
+        "type": kind,
+        "first_axis": {"alt": round(first_alt, 3), "az": round(first_az, 3)},
+        "second_axis": dict(zip(("alt", "az"), (round(v, 3) for v in _altaz(second_axis)))),
+        "angles": {"first": round(first % 360, 3), "second": round(second, 3)},
+        "motors": {"azm": round(motors[0] % 360, 3), "alt": round(motors[1] % 360, 3)},
+    }
+    if kind in ("wedge", "gem") and site is not None:
+        pole = (abs(site[0]), 0.0 if site[0] >= 0 else 180.0)
+        result["polar_error"] = round(_separation((first_alt, first_az), pole), 3)
+    if kind == "gem":
+        result["pier_side"] = "east" if second_axis[1] > 0 else "west"  # where the tube end of the Dec axis is
+    return result
+
+
 # --- the listener ------------------------------------------------------------------------
 
 @dataclass
@@ -255,8 +292,10 @@ class SkyObserver:
     motor positions and plate solves. ``view()`` turns them into what the spheres draw."""
 
     def __init__(self, solver: StarListSolver, emulated: Callable[[int], bool],
-                 wall_time: Callable[[float], float]) -> None:
+                 wall_time: Callable[[float], float],
+                 mount_model: Callable[[], Optional[int]] = lambda: None) -> None:
         self._solver = solver
+        self._mount_model = mount_model  # the mount's model number, as its motor reported it
         self._emulated = emulated     # whether the device at this address is one of the scanner's emulators
         self._wall_time = wall_time   # a bus timestamp as Unix time
         self._lock = threading.Lock()
@@ -467,6 +506,23 @@ class SkyObserver:
                 alt, az = model.pointing(azm, alt_motor)
                 ra, dec = altaz_to_j2000(alt, az, latitude, longitude, datetime.fromtimestamp(stamp + shift, timezone.utc))
                 trail.append([round(ra % 360, 3), round(dec, 3)])
+        mount = None
+        if model is not None and found is not None and axes is not None:
+            number = self._mount_model()
+            spec = next((s for s in MOUNTS if s.model_id == number), None)
+            latitude = found[0][0]
+            if spec is not None and spec.kind == GEM:
+                kind = "gem"
+            elif model.kind == "tilted":
+                kind = "wedge" if abs(model.inclination - abs(latitude)) < WEDGE_SLACK else "tilted"
+            else:
+                kind = "altaz"
+            frame = Frame.for_axis(model.inclination, model.rotation)
+            mount = mount_geometry(kind, frame, model.azm_sign * axes[0] + model.azm_offset,
+                                   model.alt_sign * axes[1] + model.alt_offset, axes, found[0])
+            mount["name"] = spec.name if spec is not None else None
+            mount["type_from"] = (f"motor model 0x{number:04x}" if spec is not None and spec.kind == GEM
+                                  else "mount fit to the plates")
         return {
             "time": _iso(now),
             "site": site,
@@ -481,4 +537,5 @@ class SkyObserver:
             "motors": axes is not None,
             "emulated": emulated,  # what in this view an emulator said
             "time_from": time_from,  # whose clock set the time (None: this computer's)
+            "mount": mount,          # how the mount stands, once the plates place it
         }
