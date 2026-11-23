@@ -106,5 +106,5 @@ jobs:
           fi
           gh release create "v$VERSION" dist/* \
             --target "$GITHUB_SHA" \
-            --title "celestron-aux $VERSION" \
+            --title "AUXBUS Scanner $VERSION" \
             --notes-file notes.md

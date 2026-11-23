@@ -183,7 +183,7 @@ def _make_handler(server: WebServer) -> type:
                 return False
             body = json.dumps({"error": "Password required."}).encode("utf-8")
             self.send_response(HTTPStatus.UNAUTHORIZED)
-            self.send_header("WWW-Authenticate", 'Basic realm="celestron-aux", charset="UTF-8"')
+            self.send_header("WWW-Authenticate", 'Basic realm="AUXBUS Scanner", charset="UTF-8"')
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")

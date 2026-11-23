@@ -6,7 +6,7 @@ import urllib.request
 import pytest
 
 from celestron_aux.app import AppConfig
-from celestron_aux.cli import PASSWORD_ENV, parse_args, web_password
+from celestron_aux.cli import parse_args, web_password
 from celestron_aux.web import WebServer, WebSession
 
 HEADERS = {"Content-Type": "application/json", "X-Requested-With": "celestron-aux"}
@@ -43,7 +43,7 @@ def test_every_route_needs_the_password(protected):
     for path in ("/", "/api/state", "/api/events", "/api/download/raw"):
         status, headers, body = request(base + path)
         assert status == 401
-        assert headers["WWW-Authenticate"].startswith('Basic realm="celestron-aux"')
+        assert headers["WWW-Authenticate"].startswith('Basic realm="AUXBUS Scanner"')
         assert json.loads(body) == {"error": "Password required."}
     status, _, _ = request(base + "/api/scan", HEADERS, b"{}")
     assert status == 401
@@ -79,11 +79,9 @@ def test_no_password_means_open(tmp_path):
 
 
 def test_password_sources(monkeypatch):
-    monkeypatch.delenv(PASSWORD_ENV, raising=False)
+    monkeypatch.setenv("CELESTRON_AUX_WEB_PASSWORD", "no longer read")
     assert web_password(parse_args(["--web"])) is None
     assert web_password(parse_args(["--web", "--web-password=abc"])) == "abc"
-    monkeypatch.setenv(PASSWORD_ENV, "from-env")
-    assert web_password(parse_args(["--web"])) == "from-env"
     assert web_password(parse_args(["--web", "--web-password", "given"])) == "given"
     answers = iter(["typed", "typed"])
     assert web_password(parse_args(["--web", "--web-password"]), ask=lambda _: next(answers)) == "typed"

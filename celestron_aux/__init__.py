@@ -1,4 +1,4 @@
-"""Celestron AUX bus scanner, monitor and protocol toolkit."""
+"""AUXBUS Scanner: Celestron AUX bus scanner, monitor and protocol toolkit."""
 
 __version__ = "1.3.2"
 __author__ = "Patricio Latini"

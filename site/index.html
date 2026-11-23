@@ -3,24 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>celestron-aux · Celestron AUX bus toolkit</title>
+<title>AUXBUS Scanner · Celestron AUX bus toolkit</title>
 <meta name="description" content="Scanner, monitor, emulator and Wireshark dissector for the Celestron AUX bus: discover the devices on a Celestron mount, decode their traffic and try apps such as CPWI without a telescope.">
 <meta name="theme-color" content="#0b1020">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
-<meta property="og:title" content="celestron-aux">
+<meta property="og:title" content="AUXBUS Scanner">
 <meta property="og:description" content="Scanner, monitor, emulator and Wireshark dissector for the Celestron AUX bus.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://celestron-aux.patriciolatini.com/">
+<meta property="og:url" content="https://auxbus.patriciolatini.com/">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="top">
   <nav class="wrap nav" aria-label="Main">
-    <a class="brand" href="#top" aria-label="celestron-aux home">
+    <a class="brand" href="#top" aria-label="AUXBUS Scanner home">
       <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="16" r="4" fill="currentColor"/><path d="M16 1v6M16 25v6M1 16h6M25 16h6" stroke="currentColor" stroke-width="2"/></svg>
-      celestron-aux
+      AUXBUS Scanner
     </a>
     <ul>
       <li><a href="#features">Features</a></li>
@@ -39,7 +39,7 @@
     <div>
       <p class="eyebrow">Open source · GPL-3.0 · Windows, macOS, Linux</p>
       <h1>See what your Celestron mount is saying.</h1>
-      <p class="lede">celestron-aux discovers the devices on a Celestron telescope's AUX bus, decodes every packet between them, sends commands, and can emulate a whole mount, so apps such as CPWI can be tried, and their traffic studied, without a telescope.</p>
+      <p class="lede">AUXBUS Scanner discovers the devices on a Celestron telescope's AUX bus, decodes every packet between them, sends commands, and can emulate a whole mount, so apps such as CPWI can be tried, and their traffic studied, without a telescope.</p>
       <div class="cta">
         <a class="btn primary" href="https://github.com/platini2/celestron-aux/releases/latest">Download the latest release</a>
         <a class="btn" href="#install">How to install</a>
@@ -94,7 +94,7 @@
 <section id="browser" class="band">
   <div class="wrap section">
     <h2>Run it in your browser</h2>
-    <p class="intro">Start celestron-aux with <code>--web</code> and everything happens in a web page: connecting, scanning, sending commands, recording, and watching the traffic live. The page loads nothing from the internet, so it also works on the mount's own Wi-Fi network.</p>
+    <p class="intro">Start AUXBUS Scanner with <code>--web</code> and everything happens in a web page: connecting, scanning, sending commands, recording, and watching the traffic live. The page loads nothing from the internet, so it also works on the mount's own Wi-Fi network.</p>
     <ol class="steps">
       <li><strong>Start it.</strong> In a terminal (Command Prompt on Windows):
 <pre class="cmd"><code>celestron-aux --web                  <span class="p"># Windows: py -m celestron_aux --web</span></code></pre>
@@ -104,7 +104,7 @@
       <li><strong>Watch, mark and record.</strong> Every packet is decoded as it happens. Type what you just did (for example "pressed Align") and press <strong>Mark</strong>; turn on the CSV log or raw capture to keep the session, and download them from the page.</li>
     </ol>
     <figure class="shot">
-      <img src="img/web-overview.webp" width="1600" height="1333" loading="lazy" alt="The celestron-aux web interface showing a NexStar SLT: six detected devices with their firmware, and the live traffic log with decoded values such as the focuser position 11981 and the dew heater's temperature, dew point and humidity.">
+      <img src="img/web-overview.webp" width="1600" height="1333" loading="lazy" alt="The AUXBUS Scanner web interface showing a NexStar SLT: six detected devices with their firmware, and the live traffic log with decoded values such as the focuser position 11981 and the dew heater's temperature, dew point and humidity.">
       <figcaption>Real traffic from a NexStar SLT over Wi-Fi: CPWI polling the focuser, motors, GPS and dew heater, each reply decoded.</figcaption>
     </figure>
     <figure class="shot">
@@ -148,7 +148,7 @@
   <div class="two">
     <div>
       <h2>Bring it into Wireshark</h2>
-      <p>celestron-aux writes a Wireshark dissector that names every device and command, decodes the data exactly as celestron-aux does, and checks checksums. It decodes live Wi-Fi captures on TCP port 2000, putting frames split across TCP segments back together, and the captures celestron-aux records.</p>
+      <p>AUXBUS Scanner writes a Wireshark dissector that names every device and command, decodes the data exactly as AUXBUS Scanner does, and checks checksums. It decodes live Wi-Fi captures on TCP port 2000, putting frames split across TCP segments back together, and the captures AUXBUS Scanner records.</p>
       <p class="small">Filter with <code>celestron_aux</code>, for example <code>celestron_aux.cmd_name == "MTR_GOTO_FAST"</code> or <code>celestron_aux.value contains "Solved"</code>.</p>
     </div>
 <pre class="cmd"><code><span class="p">#</span> the dissector, for Wireshark's plugins folder
@@ -163,14 +163,14 @@ celestron-aux --export-pcap rawoutput.txt capture.pcap</code></pre>
 <section id="install">
   <div class="wrap section">
     <h2>Install</h2>
-    <p class="intro">celestron-aux is a Python program. It needs Python 3.9 or later and nothing else; Git is not needed.</p>
+    <p class="intro">AUXBUS Scanner is a Python program. It needs Python 3.9 or later and nothing else; Git is not needed.</p>
     <div class="two">
       <div>
         <h3>Windows 10 and 11</h3>
         <ol class="steps">
           <li><strong>Install Python</strong> from <a href="https://www.python.org/downloads/windows/">python.org</a>. On the installer's first screen, tick <strong>Add python.exe to PATH</strong>, then <strong>Install Now</strong>.</li>
           <li><strong>Open Command Prompt:</strong> press the Windows key, type <code>cmd</code> and press Enter.</li>
-          <li><strong>Install celestron-aux:</strong>
+          <li><strong>Install AUXBUS Scanner:</strong>
 <pre class="cmd wrap"><code>py -m pip install https://github.com/platini2/celestron-aux/archive/refs/heads/main.zip</code></pre></li>
           <li><strong>Start it in your browser:</strong>
 <pre class="cmd"><code>py -m celestron_aux --web</code></pre>
@@ -200,7 +200,7 @@ celestron-aux playback rawoutput.txt   <span class="p"># replay a recorded sessi
 
 <footer class="wrap foot">
   <p>© 2021–2026 Patricio Latini · Free software under the <a href="https://github.com/platini2/celestron-aux/blob/main/LICENSE">GNU GPL v3</a> · <a href="https://github.com/platini2/celestron-aux">Source on GitHub</a></p>
-  <p class="small">An independent project, not affiliated with or endorsed by Celestron. The protocol is not published; names and formats come from captures of real devices and community reverse engineering. Celestron, NexStar, StarSense, SkyPortal and CPWI are trademarks of their owners.</p>
+  <p class="small">An independent, community-made project, not affiliated with or endorsed by Celestron. The protocol is not published; names and formats come from captures of real devices and community reverse engineering, and may be incomplete or wrong. Use it at your own risk: it can move a real telescope and change its settings, and it comes with no warranty. Celestron, NexStar, StarSense, SkyPortal, CPWI and the other product names are trademarks of their respective owners.</p>
 </footer>
 </body>
 </html>

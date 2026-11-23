@@ -1,13 +1,14 @@
-# celestron-aux
+# AUXBUS Scanner
 
-Scanner, monitor and protocol toolkit for the Celestron AUX bus: discover the
+AUXBUS Scanner (the `celestron-aux` package) is a scanner, monitor and
+protocol toolkit for the Celestron AUX bus: discover the
 devices on a mount, watch and decode their traffic, send commands and capture
 StarSense star lists. It can also emulate a whole Celestron system (a mount with
 its two motors, StarSense cameras, GPS, focuser, dew heater and a Wi-Fi dongle),
 so apps such as CPWI can be tried, and their traffic studied, without a
 telescope. See [Emulators](#emulators).
 
-Website: https://celestron-aux.patriciolatini.com
+Website: https://auxbus.patriciolatini.com
 
 ## Install and run
 
@@ -78,7 +79,7 @@ celestron-aux --web 0.0.0.0:8080              # reachable from a phone or tablet
 1. Start the program with `--web`. It prints the address to open:
 
    ```
-   celestron-aux 1.3.2
+   AUXBUS Scanner 1.3.2
    Copyright © 2021-2026 Patricio Latini
    Web interface: http://localhost:8080/  (press Ctrl+C to stop)
    Open it and choose how to connect to the mount.
@@ -162,30 +163,20 @@ page from other devices, add a password:
 
 ```bash
 celestron-aux --web 0.0.0.0:8080 --web-password       # asks for it when the program starts
-CELESTRON_AUX_WEB_PASSWORD=secret celestron-aux --web 0.0.0.0:8080
 celestron-aux --web 0.0.0.0:8080 --web-password=secret
 ```
 
-On Windows, set the environment variable first, then start the program:
-
-```
-set CELESTRON_AUX_WEB_PASSWORD=secret            (Command Prompt)
-$env:CELESTRON_AUX_WEB_PASSWORD = "secret"       (PowerShell)
-py -m celestron_aux --web 0.0.0.0:8080
-```
-
-The browser asks for it once; any user name works. Asking at startup or the
-environment variable keeps the password out of your shell history. Asking at
-startup needs a real terminal (Terminal, Command Prompt, PowerShell); where the
-program cannot hide what you type, Python warns that the password may show. With a
-value, write `--web-password=secret` (with `=`), so it is not mistaken for the
+The browser asks for it once; any user name works. Asking at startup keeps the
+password out of your shell history, and needs a real terminal (Terminal,
+Command Prompt, PowerShell); where the program cannot hide what you type,
+Python warns that the password may show. With a value, write `--web-password=secret` (with `=`), so it is not mistaken for the
 mode. The page uses plain HTTP, so the password crosses the network
 unencrypted: it keeps other people at the observing site out, but use
 `0.0.0.0` only on a network you trust.
 
 ## Wireshark
 
-celestron-aux can hand its captures to [Wireshark](https://www.wireshark.org),
+AUXBUS Scanner can hand its captures to [Wireshark](https://www.wireshark.org),
 with a dissector that names every device and command:
 
 ```bash
@@ -217,7 +208,7 @@ The dissector decodes:
   package that comes with Wireshark.
 
 Each frame shows its source, destination and command names, its data decoded
-the way celestron-aux decodes it (positions, coordinates, plate solves, firmware
+the way AUXBUS Scanner decodes it (positions, coordinates, plate solves, firmware
 versions, mount models, GPS time, dew heater readings and every other payload
 the program understands), and whether its checksum is right. Data that does not
 fit its command's known format is flagged "unexpected format". Filter with
@@ -234,7 +225,7 @@ the dissector as downloads.
 ## Protocol reference
 
 [docs/protocol.md](docs/protocol.md) lists every device and command
-celestron-aux knows, which payloads it decodes, and the mount models. It is
+AUXBUS Scanner knows, which payloads it decodes, and the mount models. It is
 generated from the code. To make one that includes the names in your own
 catalog:
 
@@ -487,7 +478,7 @@ for moves made while no page was open.
 
 The spheres can also be built from the traffic on the bus: on a real
 telescope with no emulator, or replaying a raw capture, that is real data.
-celestron-aux builds them from what the devices say on the bus. The location comes from a GPS's answers or the one CPWI sends the camera;
+AUXBUS Scanner builds them from what the devices say on the bus. The location comes from a GPS's answers or the one CPWI sends the camera;
 the plates from every StarSense star list (plate-solved on Hipparcos) and from
 a StarSense V2's own solves; the telescope's pointing and path from the motors'
 positions, which CPWI and the hand controller ask for all the time.
@@ -543,7 +534,23 @@ the emulators get closer to the real thing.
 The emulated StarSense camera's stars come from the Hipparcos catalogue
 (ESA 1997, *The Hipparcos and Tycho Catalogues*, ESA SP-1200), as published by
 NASA's HEASARC. `scripts/build_star_catalog.py` rebuilds the cut that ships with
-celestron-aux.
+AUXBUS Scanner.
 
 The continents on the Earth sphere are Natural Earth's 1:110m land outlines
 (public domain); `scripts/build_land_outline.py` rebuilds them.
+
+## Disclaimer
+
+AUXBUS Scanner is an independent, community-made project. It is not
+affiliated with or endorsed by Celestron.
+
+The AUX protocol is not published. The names, formats and behaviour here come
+from captures of real devices and community reverse engineering, not from
+Celestron documentation, so they may be incomplete or wrong.
+
+Use it at your own risk. It can send commands to a real telescope (moving the
+motors, changing settings, writing to devices), and it comes with no warranty
+(see the [GNU GPL v3](LICENSE)). Keep an eye on the telescope when you drive it.
+
+Celestron, NexStar, StarSense, SkyPortal, CPWI and the other product names are
+trademarks of their respective owners.

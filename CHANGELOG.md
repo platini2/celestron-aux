@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The program is called AUXBUS Scanner wherever it names itself: the web
+  page's title and header, the startup line, `--help`, the README, the website,
+  the generated protocol reference and Wireshark dissector, and the web
+  password prompt. The package, the `celestron-aux` command, the
+  `celestron_aux` module and the download names are unchanged, so install
+  commands and links keep working.
+- The README and the website end with a disclaimer: an independent,
+  community-made project, not affiliated with or endorsed by Celestron; the
+  protocol comes from captures and reverse engineering; use at your own risk;
+  the trademarks belong to their owners.
+- The website moves to https://auxbus.patriciolatini.com; the old address
+  redirects there.
+
+### Removed
+
+- The `CELESTRON_AUX_WEB_PASSWORD` environment variable is no longer read. Give
+  the web page's password with `--web-password` (asked for at startup when
+  given without a value) or `--web-password=secret`.
+
 ## 1.3.2
 
 ### Added
